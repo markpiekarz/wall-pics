@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wall Picture Planner</title>
+    <meta
+      name="description"
+      content="Plan picture frames on a wall with real dimensions, inner margins, and a wall-photo background."
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Open source wall layout planner</p>
+        <h1>Wall Picture Planner</h1>
+        <p class="subtitle">
+          Upload a blank wall photo, define the wall dimensions and the inner keep-clear margin,
+          then add picture frames until the usable area is full.
+        </p>
+      </div>
+    </header>
+
+    <main class="app-shell">
+      <section class="panel controls-panel">
+        <div class="section-heading">
+          <h2>1. Wall setup</h2>
+          <p>These values define the actual coordinate system used for placement.</p>
+        </div>
+
+        <form id="wall-form" class="stack-form">
+          <div class="grid two-up">
+            <label>
+              <span>Wall width</span>
+              <input id="wall-width" name="wallWidth" type="number" min="1" step="0.1" value="240" required />
+            </label>
+            <label>
+              <span>Wall height</span>
+              <input id="wall-height" name="wallHeight" type="number" min="1" step="0.1" value="140" required />
+            </label>
+          </div>
+
+          <div class="grid two-up">
+            <label>
+              <span>Inner margin</span>
+              <input id="inner-margin" name="innerMargin" type="number" min="0" step="0.1" value="12" required />
+            </label>
+            <label>
+              <span>Units</span>
+              <select id="wall-unit" name="wallUnit">
+                <option value="cm" selected>Centimetres</option>
+                <option value="in">Inches</option>
+                <option value="mm">Millimetres</option>
+                <option value="m">Metres</option>
+              </select>
+            </label>
+          </div>
+
+          <label>
+            <span>Blank wall photo</span>
+            <input id="wall-image" type="file" accept="image/*" />
+            <small class="hint">Optional. The image stays in the browser and is used as the wall background.</small>
+          </label>
+
+          <div class="button-row">
+            <button type="submit">Apply wall settings</button>
+            <button id="clear-wall-image" type="button" class="button-secondary">Remove photo</button>
+          </div>
+        </form>
+
+        <div class="stats-card" id="wall-summary"></div>
+      </section>
+
+      <section class="panel controls-panel">
+        <div class="section-heading">
+          <h2>2. Add picture frames</h2>
+          <p>Frames are automatically rearranged to stay evenly distributed in the usable wall area.</p>
+        </div>
+
+        <form id="frame-form" class="stack-form">
+          <label>
+            <span>Picture label</span>
+            <input id="frame-name" name="frameName" type="text" maxlength="60" placeholder="Living room print" />
+          </label>
+
+          <div class="grid two-up">
+            <label>
+              <span>Frame width</span>
+              <input id="frame-width" name="frameWidth" type="number" min="1" step="0.1" value="30" required />
+            </label>
+            <label>
+              <span>Frame height</span>
+              <input id="frame-height" name="frameHeight" type="number" min="1" step="0.1" value="40" required />
+            </label>
+          </div>
+
+          <div class="button-row">
+            <button type="submit">Add picture frame</button>
+            <button id="clear-frames" type="button" class="button-secondary">Remove all frames</button>
+          </div>
+        </form>
+
+        <div id="status-banner" class="status-banner" aria-live="polite"></div>
+
+        <div class="section-heading compact">
+          <h3>Placed frames</h3>
+          <p id="frame-count-copy">0 frames</p>
+        </div>
+
+        <div id="frame-list" class="frame-list empty-state">
+          No frames added yet.
+        </div>
+      </section>
+
+      <section class="panel preview-panel">
+        <div class="section-heading">
+          <h2>3. Wall preview</h2>
+          <p>The dashed rectangle shows the inner margin boundary that picture edges may not cross.</p>
+        </div>
+
+        <div id="wall-viewport" class="wall-viewport">
+          <div id="wall-canvas" class="wall-canvas">
+            <div id="usable-area" class="usable-area" aria-hidden="true"></div>
+            <div id="frame-layer" class="frame-layer" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>
+        Static browser app suitable for GitHub Pages. All image handling stays local to the browser.
+      </p>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
