@@ -1,12 +1,13 @@
 # Wall Picture Planner
 
-Wall Picture Planner is a static browser app for planning framed pictures on a wall using real dimensions in millimetres (mm).
+Wall Picture Planner is a static browser app for planning framed pictures on a wall using real dimensions in millimetres (mm). The current build is mobile-first and designed to work in portrait orientation on phones.
 
 ## What it does
 
 - asks for wall width, wall height, and an inner keep-clear margin in millimetres (mm)
 - accepts a photo of an existing blank wall and uses it as the wall background
-- supports direct camera capture from the webpage on supported mobile and desktop browsers
+- offers two primary phone-friendly photo paths: take a photo now or choose one from the gallery
+- keeps the live browser camera as an advanced fallback tool
 - adds an interactive shaded wall-area overlay so the user can define which rectangle in the photo corresponds to the supplied wall dimensions
 - draws the wall with an outer scene margin and a visible inner margin boundary
 - lets the user add picture frames by entering their dimensions
@@ -21,7 +22,7 @@ Wall Picture Planner is a static browser app for planning framed pictures on a w
 4. Apply the selected wall area.
 5. The cropped selection becomes the wall background used by the planner.
 
-This is the best approach for this app because it stays simple on phones, makes the wall bounds obvious, and avoids forcing the user to type photo offsets manually.
+This is the best approach for this app because it stays simple on phones, keeps the main page compact by using a modal editor, makes the wall bounds obvious, and avoids forcing the user to type photo offsets manually.
 
 ## Camera notes
 

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Wall Picture Planner</title>
     <meta
       name="description"
@@ -16,8 +16,8 @@
         <p class="eyebrow">Open source wall layout planner</p>
         <h1>Wall Picture Planner</h1>
         <p class="subtitle">
-          Take or upload a blank wall photo, define the wall dimensions and the inner keep-clear
-          margin, then add picture frames until the usable area is full.
+          Mobile first. Enter the wall size in mm, take a photo or choose one from your phone gallery,
+          mark the real wall area, then place picture frames inside the usable space.
         </p>
       </div>
     </header>
@@ -26,7 +26,7 @@
       <section class="panel controls-panel">
         <div class="section-heading">
           <h2>1. Wall setup</h2>
-          <p>These values define the actual coordinate system used for placement.</p>
+          <p>These values define the real wall coordinate system used for placement.</p>
         </div>
 
         <form id="wall-form" class="stack-form">
@@ -55,68 +55,36 @@
           <div class="photo-source-card">
             <div class="photo-source-copy">
               <span>Wall photo</span>
-              <small class="hint">Mobile first: take a wall photo now or choose one from your phone gallery.</small>
+              <small class="hint">Best on phones: either take a wall photo now or choose one from your gallery.</small>
             </div>
 
             <input id="wall-image-camera" class="hidden" type="file" accept="image/*" capture="environment" />
             <input id="wall-image-gallery" class="hidden" type="file" accept="image/*" />
 
-            <div class="photo-actions-grid">
-              <button id="take-wall-photo" type="button" class="photo-action-button">Take wall photo</button>
+            <div class="photo-actions-stack">
+              <button id="take-wall-photo" type="button" class="photo-action-button primary-photo-button">Take wall photo</button>
               <button id="choose-wall-photo" type="button" class="button-secondary photo-action-button">Choose from gallery</button>
             </div>
 
-            <div class="button-row utility-actions-row">
-              <button id="open-camera" type="button" class="button-secondary">Use live preview camera</button>
-              <button id="edit-wall-area" type="button" class="button-secondary hidden">Adjust wall area</button>
-              <button id="clear-wall-image" type="button" class="button-secondary">Remove photo</button>
-            </div>
-          </div>
-
-          <div id="camera-panel" class="camera-panel hidden" aria-live="polite">
-            <div class="camera-preview-wrap">
-              <video id="camera-video" autoplay playsinline muted></video>
-            </div>
-            <div class="button-row">
-              <button id="capture-photo" type="button">Capture wall photo</button>
-              <button id="close-camera" type="button" class="button-secondary">Close camera</button>
-            </div>
-            <small class="hint">
-              Camera access requires browser permission. GitHub Pages runs over HTTPS, which allows camera use.
-            </small>
-          </div>
-
-          <div id="crop-panel" class="crop-panel hidden" aria-live="polite">
-            <div class="section-heading compact">
-              <h3>Choose the wall area in the photo</h3>
-              <p>
-                Drag the bright rectangle or its corner handles so it covers only the wall area that matches the
-                dimensions above. The shaded area will be ignored.
-              </p>
-            </div>
-
-            <div id="crop-stage" class="crop-stage">
-              <img id="crop-image" alt="Wall photo crop preview" />
-              <div id="crop-selection" class="crop-selection">
-                <button type="button" class="crop-handle handle-nw" data-handle="nw" aria-label="Resize top left"></button>
-                <button type="button" class="crop-handle handle-ne" data-handle="ne" aria-label="Resize top right"></button>
-                <button type="button" class="crop-handle handle-sw" data-handle="sw" aria-label="Resize bottom left"></button>
-                <button type="button" class="crop-handle handle-se" data-handle="se" aria-label="Resize bottom right"></button>
-                <div class="crop-selection-label">Selected wall area</div>
+            <div id="photo-preview-card" class="photo-preview-card hidden" aria-live="polite">
+              <img id="photo-preview-image" alt="Selected wall preview" />
+              <div>
+                <strong id="photo-preview-title">No wall photo selected</strong>
+                <p id="photo-preview-meta">Take or choose a photo to start.</p>
               </div>
             </div>
 
-            <div class="button-row">
-              <button id="apply-crop" type="button">Use selected wall area</button>
-              <button id="reset-crop" type="button" class="button-secondary">Reset selection</button>
-              <button id="cancel-crop" type="button" class="button-secondary">Close</button>
-            </div>
-            <small class="hint">
-              Best results come from selecting only the true wall plane inside the photo.
-            </small>
+            <details class="advanced-tools">
+              <summary>More photo tools</summary>
+              <div class="advanced-tools-body">
+                <button id="open-camera" type="button" class="button-secondary">Use live preview camera</button>
+                <button id="edit-wall-area" type="button" class="button-secondary hidden">Adjust wall area</button>
+                <button id="clear-wall-image" type="button" class="button-secondary">Remove photo</button>
+              </div>
+            </details>
           </div>
 
-          <div class="button-row">
+          <div class="button-row single-action-row">
             <button type="submit">Apply wall settings</button>
           </div>
         </form>
@@ -124,10 +92,24 @@
         <div class="stats-card" id="wall-summary"></div>
       </section>
 
+      <section class="panel preview-panel">
+        <div class="section-heading">
+          <h2>2. Wall preview</h2>
+          <p>The dashed rectangle shows the inner margin boundary that picture edges may not cross.</p>
+        </div>
+
+        <div id="wall-viewport" class="wall-viewport">
+          <div id="wall-canvas" class="wall-canvas">
+            <div id="usable-area" class="usable-area" aria-hidden="true"></div>
+            <div id="frame-layer" class="frame-layer" aria-live="polite"></div>
+          </div>
+        </div>
+      </section>
+
       <section class="panel controls-panel frames-panel">
         <div class="section-heading">
-          <h2>2. Add picture frames</h2>
-          <p>Frames are automatically rearranged to stay evenly distributed in the usable wall area.</p>
+          <h2>3. Add picture frames</h2>
+          <p>Frames are rearranged automatically to stay evenly distributed in the usable wall area.</p>
         </div>
 
         <form id="frame-form" class="stack-form">
@@ -164,27 +146,67 @@
           No frames added yet.
         </div>
       </section>
-
-      <section class="panel preview-panel">
-        <div class="section-heading">
-          <h2>3. Wall preview</h2>
-          <p>The dashed rectangle shows the inner margin boundary that picture edges may not cross. On phones, the preview stays large and touch-friendly.</p>
-        </div>
-
-        <div id="wall-viewport" class="wall-viewport">
-          <div id="wall-canvas" class="wall-canvas">
-            <div id="usable-area" class="usable-area" aria-hidden="true"></div>
-            <div id="frame-layer" class="frame-layer" aria-live="polite"></div>
-          </div>
-        </div>
-      </section>
     </main>
 
     <footer class="footer">
-      <p>
-        Static browser app suitable for GitHub Pages. All image handling stays local to the browser.
-      </p>
+      <p>Static browser app suitable for GitHub Pages. All image handling stays local to the browser.</p>
     </footer>
+
+    <div id="camera-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-scrim" data-close-modal="camera"></div>
+      <div id="camera-panel" class="modal-card camera-panel" aria-live="polite" role="dialog" aria-modal="true" aria-label="Live camera">
+        <div class="modal-header">
+          <div>
+            <p class="modal-eyebrow">Camera</p>
+            <h3>Capture wall photo</h3>
+          </div>
+          <button id="close-camera" type="button" class="icon-button button-secondary" aria-label="Close camera">Close</button>
+        </div>
+        <div class="camera-preview-wrap">
+          <video id="camera-video" autoplay playsinline muted></video>
+        </div>
+        <div class="button-row sticky-modal-actions">
+          <button id="capture-photo" type="button">Capture wall photo</button>
+        </div>
+        <small class="hint">
+          Camera access requires browser permission. GitHub Pages runs over HTTPS, which allows camera use.
+        </small>
+      </div>
+    </div>
+
+    <div id="crop-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-scrim" data-close-modal="crop"></div>
+      <div id="crop-panel" class="modal-card crop-panel" aria-live="polite" role="dialog" aria-modal="true" aria-label="Adjust wall area">
+        <div class="modal-header">
+          <div>
+            <p class="modal-eyebrow">Wall area</p>
+            <h3>Choose the wall area in the photo</h3>
+          </div>
+          <button id="cancel-crop" type="button" class="icon-button button-secondary" aria-label="Close crop editor">Close</button>
+        </div>
+
+        <p class="modal-copy">
+          Drag the bright rectangle or its corner handles so it covers only the wall area that matches the entered dimensions.
+        </p>
+
+        <div id="crop-stage" class="crop-stage">
+          <img id="crop-image" alt="Wall photo crop preview" />
+          <div id="crop-selection" class="crop-selection">
+            <button type="button" class="crop-handle handle-nw" data-handle="nw" aria-label="Resize top left"></button>
+            <button type="button" class="crop-handle handle-ne" data-handle="ne" aria-label="Resize top right"></button>
+            <button type="button" class="crop-handle handle-sw" data-handle="sw" aria-label="Resize bottom left"></button>
+            <button type="button" class="crop-handle handle-se" data-handle="se" aria-label="Resize bottom right"></button>
+            <div class="crop-selection-label">Selected wall area</div>
+          </div>
+        </div>
+
+        <div class="button-row sticky-modal-actions">
+          <button id="apply-crop" type="button">Use selected wall area</button>
+          <button id="reset-crop" type="button" class="button-secondary">Reset selection</button>
+        </div>
+        <small class="hint">Best results come from selecting only the true wall plane inside the photo.</small>
+      </div>
+    </div>
 
     <canvas id="camera-canvas" class="hidden-canvas" aria-hidden="true"></canvas>
 

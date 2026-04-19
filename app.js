@@ -18,7 +18,7 @@ const state = {
   cropInteraction: null,
   lastMessage: {
     type: 'info',
-    text: 'Ready. Enter the wall size, take a photo or choose one from your gallery, then add picture frames.',
+    text: 'Ready. Enter the wall size, then take a photo or choose one from your gallery.',
   },
 };
 
@@ -37,6 +37,8 @@ const els = {
   editWallArea: document.getElementById('edit-wall-area'),
   closeCamera: document.getElementById('close-camera'),
   capturePhoto: document.getElementById('capture-photo'),
+  cameraModal: document.getElementById('camera-modal'),
+  cropModal: document.getElementById('crop-modal'),
   cameraPanel: document.getElementById('camera-panel'),
   cameraVideo: document.getElementById('camera-video'),
   cameraCanvas: document.getElementById('camera-canvas'),
@@ -59,6 +61,10 @@ const els = {
   wallCanvas: document.getElementById('wall-canvas'),
   usableArea: document.getElementById('usable-area'),
   frameLayer: document.getElementById('frame-layer'),
+  photoPreviewCard: document.getElementById('photo-preview-card'),
+  photoPreviewImage: document.getElementById('photo-preview-image'),
+  photoPreviewTitle: document.getElementById('photo-preview-title'),
+  photoPreviewMeta: document.getElementById('photo-preview-meta'),
 };
 
 function formatNumber(value) {
@@ -97,6 +103,23 @@ function showMessage(text, type = 'info') {
   state.lastMessage = { text, type };
   els.statusBanner.textContent = text;
   els.statusBanner.classList.toggle('error', type === 'error');
+}
+
+function syncBodyModalState() {
+  const hasOpenModal = !els.cameraModal.classList.contains('hidden') || !els.cropModal.classList.contains('hidden');
+  document.body.classList.toggle('modal-open', hasOpenModal);
+}
+
+function openModal(modal) {
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  syncBodyModalState();
+}
+
+function closeModal(modal) {
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  syncBodyModalState();
 }
 
 function computeLayout(frames, wall) {
@@ -310,17 +333,31 @@ function handleWallFormSubmit(event) {
 }
 
 function showCropPanel() {
-  els.cropPanel.classList.remove('hidden');
+  openModal(els.cropModal);
 }
 
 function hideCropPanel() {
-  els.cropPanel.classList.add('hidden');
+  closeModal(els.cropModal);
   state.cropInteraction = null;
 }
 
 function updateEditWallAreaButton() {
   const hasPhoto = Boolean(state.wall.sourceImage || state.pendingCrop?.dataUrl);
   els.editWallArea.classList.toggle('hidden', !hasPhoto);
+}
+
+function updatePhotoPreview() {
+  const previewImage = state.wall.backgroundImage || state.wall.sourceImage;
+  const hasPhoto = Boolean(previewImage);
+  els.photoPreviewCard.classList.toggle('hidden', !hasPhoto);
+
+  if (!hasPhoto) return;
+
+  els.photoPreviewImage.src = previewImage;
+  els.photoPreviewTitle.textContent = state.wall.backgroundImage ? 'Wall photo ready' : 'Wall photo selected';
+  els.photoPreviewMeta.textContent = state.wall.backgroundImage
+    ? 'The marked wall area is applied to the preview below.'
+    : 'A photo is loaded. Adjust the wall area before placing frames.';
 }
 
 function renderCropSelection() {
@@ -385,12 +422,13 @@ function clearWallImage() {
   hideCropPanel();
   updateEditWallAreaButton();
   renderWall();
+  updatePhotoPreview();
   showMessage('Wall photo removed.', 'info');
 }
 
 async function openCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    showMessage('Live camera is not supported in this browser. Use the photo input instead.', 'error');
+    showMessage('Live camera is not supported in this browser. Use the main photo buttons instead.', 'error');
     return;
   }
 
@@ -405,9 +443,9 @@ async function openCamera() {
 
     state.cameraStream = stream;
     els.cameraVideo.srcObject = stream;
-    els.cameraPanel.classList.remove('hidden');
+    openModal(els.cameraModal);
     await els.cameraVideo.play();
-    showMessage('Live preview camera opened. On phones, the main Take wall photo button is usually faster.', 'info');
+    showMessage('Live preview camera opened.', 'info');
   } catch (error) {
     const message = error && typeof error === 'object' && 'name' in error ? String(error.name) : 'CameraError';
     if (message === 'NotAllowedError' || message === 'SecurityError') {
@@ -418,7 +456,7 @@ async function openCamera() {
       showMessage('No usable camera was found on this device.', 'error');
       return;
     }
-    showMessage('Could not open the live camera in this browser. Use the photo input instead.', 'error');
+    showMessage('Could not open the live camera in this browser. Use the main photo buttons instead.', 'error');
   }
 }
 
@@ -429,7 +467,7 @@ function stopCamera() {
   }
   els.cameraVideo.pause();
   els.cameraVideo.srcObject = null;
-  els.cameraPanel.classList.add('hidden');
+  closeModal(els.cameraModal);
 }
 
 function capturePhoto() {
@@ -494,7 +532,7 @@ function applyPendingCrop() {
   hideCropPanel();
   state.pendingCrop = null;
   updateEditWallAreaButton();
-  renderWall();
+  render();
   showMessage('Selected wall area applied as the background.', 'info');
 }
 
@@ -646,7 +684,7 @@ function renderSummary() {
     ? `${state.layout.rowCount || 0} row${state.layout.rowCount === 1 ? '' : 's'} in use`
     : 'No valid layout';
 
-  const photoLine = state.wall.backgroundImage ? 'Wall photo aligned' : 'No wall photo';
+  const photoLine = state.wall.backgroundImage ? 'Wall photo aligned' : state.wall.sourceImage ? 'Photo selected, wall area not applied yet' : 'No wall photo';
 
   els.wallSummary.innerHTML = `
     <div><strong>Wall:</strong> ${areaLabel(state.wall.width, state.wall.height, state.wall.unit)}</div>
@@ -690,8 +728,9 @@ function renderFrameList() {
 }
 
 function fitWallToViewport() {
-  const maxWidth = Math.max(els.wallViewport.clientWidth - 10, 260);
-  const maxHeight = Math.max(window.innerHeight * 0.58, 280);
+  const maxWidth = Math.max(els.wallViewport.clientWidth - 8, 240);
+  const isDesktop = window.innerWidth >= 960;
+  const maxHeight = Math.max(window.innerHeight * (isDesktop ? 0.58 : 0.36), isDesktop ? 320 : 220);
   const scale = Math.min(maxWidth / state.wall.width, maxHeight / state.wall.height);
   return {
     scale,
@@ -706,10 +745,8 @@ function renderWall() {
   els.wallCanvas.style.height = `${height}px`;
 
   if (state.wall.backgroundImage) {
-    els.wallCanvas.classList.add('with-photo');
     els.wallCanvas.style.backgroundImage = `linear-gradient(rgba(255,255,255,0.18), rgba(255,255,255,0.18)), url(${state.wall.backgroundImage})`;
   } else {
-    els.wallCanvas.classList.remove('with-photo');
     els.wallCanvas.style.backgroundImage = 'linear-gradient(rgba(255,255,255,0.28), rgba(255,255,255,0.28)), linear-gradient(180deg, #d8d1c9, #c4b8ab)';
   }
 
@@ -747,6 +784,7 @@ function renderWall() {
 
 function render() {
   updateEditWallAreaButton();
+  updatePhotoPreview();
   renderSummary();
   renderFrameList();
   renderWall();
@@ -763,6 +801,33 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function handleModalScrimClick(event) {
+  const closeType = event.target instanceof HTMLElement ? event.target.dataset.closeModal : null;
+  if (closeType === 'camera') {
+    stopCamera();
+  }
+  if (closeType === 'crop') {
+    closeCropEditor();
+  }
+}
+
+function handleEscape(event) {
+  if (event.key !== 'Escape') return;
+  if (!els.cropModal.classList.contains('hidden')) {
+    closeCropEditor();
+    return;
+  }
+  if (!els.cameraModal.classList.contains('hidden')) {
+    stopCamera();
+  }
+}
+
+function updateCropStageRatio() {
+  if (!els.cropImage.naturalWidth || !els.cropImage.naturalHeight) return;
+  els.cropStage.style.setProperty('--crop-ratio', `${els.cropImage.naturalWidth} / ${els.cropImage.naturalHeight}`);
+  renderCropSelection();
 }
 
 function init() {
@@ -791,7 +856,10 @@ function init() {
   els.cropStage.addEventListener('pointercancel', endCropInteraction);
   els.frameForm.addEventListener('submit', addFrame);
   els.clearFrames.addEventListener('click', clearFrames);
-  els.cropImage.addEventListener('load', renderCropSelection);
+  els.cropImage.addEventListener('load', updateCropStageRatio);
+  els.cameraModal.addEventListener('click', handleModalScrimClick);
+  els.cropModal.addEventListener('click', handleModalScrimClick);
+  document.addEventListener('keydown', handleEscape);
 
   const resizeObserver = new ResizeObserver(() => {
     renderWall();
