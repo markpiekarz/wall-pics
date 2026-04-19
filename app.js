@@ -1,14 +1,15 @@
 const state = {
   wall: {
-    width: 240,
-    height: 140,
-    innerMargin: 12,
-    unit: 'cm',
+    width: 2400,
+    height: 1400,
+    innerMargin: 120,
+    unit: 'mm',
     backgroundImage: null,
   },
   frames: [],
   nextId: 1,
   layout: null,
+  cameraStream: null,
   lastMessage: {
     type: 'info',
     text: 'Ready. Define the wall, then add picture frames.',
@@ -21,9 +22,14 @@ const els = {
   wallWidth: document.getElementById('wall-width'),
   wallHeight: document.getElementById('wall-height'),
   innerMargin: document.getElementById('inner-margin'),
-  wallUnit: document.getElementById('wall-unit'),
   wallImage: document.getElementById('wall-image'),
   clearWallImage: document.getElementById('clear-wall-image'),
+  openCamera: document.getElementById('open-camera'),
+  closeCamera: document.getElementById('close-camera'),
+  capturePhoto: document.getElementById('capture-photo'),
+  cameraPanel: document.getElementById('camera-panel'),
+  cameraVideo: document.getElementById('camera-video'),
+  cameraCanvas: document.getElementById('camera-canvas'),
   clearFrames: document.getElementById('clear-frames'),
   frameName: document.getElementById('frame-name'),
   frameWidth: document.getElementById('frame-width'),
@@ -244,7 +250,7 @@ function handleWallFormSubmit(event) {
     width: Number(els.wallWidth.value),
     height: Number(els.wallHeight.value),
     innerMargin: Number(els.innerMargin.value),
-    unit: els.wallUnit.value,
+    unit: 'mm',
   };
 
   if (Object.values(nextWall).some((value) => value === '' || Number.isNaN(value))) {
@@ -260,15 +266,19 @@ function handleWallFormSubmit(event) {
   applyWallSettings(nextWall);
 }
 
+function applyWallImage(dataUrl, sourceLabel = 'photo') {
+  state.wall.backgroundImage = dataUrl;
+  renderWall();
+  showMessage(`Blank wall ${sourceLabel} applied as the background.`, 'info');
+}
+
 function handleWallImageChange(event) {
   const file = event.target.files?.[0];
   if (!file) return;
 
   const reader = new FileReader();
   reader.onload = () => {
-    state.wall.backgroundImage = String(reader.result);
-    renderWall();
-    showMessage('Blank wall photo applied as the background.', 'info');
+    applyWallImage(String(reader.result), 'photo');
   };
   reader.readAsDataURL(file);
 }
@@ -278,6 +288,68 @@ function clearWallImage() {
   els.wallImage.value = '';
   renderWall();
   showMessage('Wall photo removed.', 'info');
+}
+
+async function openCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    showMessage('Live camera is not supported in this browser. Use the photo input instead.', 'error');
+    return;
+  }
+
+  try {
+    stopCamera();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+      },
+      audio: false,
+    });
+
+    state.cameraStream = stream;
+    els.cameraVideo.srcObject = stream;
+    els.cameraPanel.classList.remove('hidden');
+    await els.cameraVideo.play();
+    showMessage('Camera opened. Aim at the blank wall and capture the photo.', 'info');
+  } catch (error) {
+    const message = error && typeof error === 'object' && 'name' in error ? String(error.name) : 'CameraError';
+    if (message === 'NotAllowedError' || message === 'SecurityError') {
+      showMessage('Camera permission was denied. Allow camera access in the browser and try again.', 'error');
+      return;
+    }
+    if (message === 'NotFoundError' || message === 'OverconstrainedError') {
+      showMessage('No usable camera was found on this device.', 'error');
+      return;
+    }
+    showMessage('Could not open the live camera in this browser. Use the photo input instead.', 'error');
+  }
+}
+
+function stopCamera() {
+  if (state.cameraStream) {
+    state.cameraStream.getTracks().forEach((track) => track.stop());
+    state.cameraStream = null;
+  }
+  els.cameraVideo.pause();
+  els.cameraVideo.srcObject = null;
+  els.cameraPanel.classList.add('hidden');
+}
+
+function capturePhoto() {
+  const videoWidth = els.cameraVideo.videoWidth;
+  const videoHeight = els.cameraVideo.videoHeight;
+
+  if (!videoWidth || !videoHeight) {
+    showMessage('The camera feed is not ready yet. Wait a moment and try again.', 'error');
+    return;
+  }
+
+  els.cameraCanvas.width = videoWidth;
+  els.cameraCanvas.height = videoHeight;
+  const ctx = els.cameraCanvas.getContext('2d');
+  ctx.drawImage(els.cameraVideo, 0, 0, videoWidth, videoHeight);
+  const dataUrl = els.cameraCanvas.toDataURL('image/jpeg', 0.92);
+  applyWallImage(dataUrl, 'camera photo');
+  stopCamera();
 }
 
 function addFrame(event) {
@@ -311,8 +383,8 @@ function addFrame(event) {
   state.layout = nextLayout;
   state.nextId += 1;
   els.frameForm.reset();
-  els.frameWidth.value = '30';
-  els.frameHeight.value = '40';
+  els.frameWidth.value = '300';
+  els.frameHeight.value = '400';
   render();
   showMessage(`Added “${frame.name}”. The layout was redistributed evenly.`, 'info');
 }
@@ -460,6 +532,9 @@ function init() {
 
   els.wallForm.addEventListener('submit', handleWallFormSubmit);
   els.wallImage.addEventListener('change', handleWallImageChange);
+  els.openCamera.addEventListener('click', openCamera);
+  els.capturePhoto.addEventListener('click', capturePhoto);
+  els.closeCamera.addEventListener('click', stopCamera);
   els.clearWallImage.addEventListener('click', clearWallImage);
   els.frameForm.addEventListener('submit', addFrame);
   els.clearFrames.addEventListener('click', clearFrames);
@@ -467,6 +542,7 @@ function init() {
   const resizeObserver = new ResizeObserver(() => renderWall());
   resizeObserver.observe(els.wallViewport);
   window.addEventListener('resize', renderWall);
+  window.addEventListener('beforeunload', stopCamera);
 }
 
 init();

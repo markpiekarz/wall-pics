@@ -28,7 +28,8 @@ body {
 
 button,
 input,
-select {
+select,
+video {
   font: inherit;
 }
 
@@ -184,7 +185,8 @@ select:focus {
 
 .stats-card,
 .status-banner,
-.frame-item {
+.frame-item,
+.camera-panel {
   border-radius: 18px;
   border: 1px solid var(--panel-border);
   background: white;
@@ -214,6 +216,33 @@ select:focus {
 .status-banner.error {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+.camera-panel {
+  padding: 12px;
+  display: grid;
+  gap: 12px;
+  background: #fcfbf8;
+}
+
+.camera-preview-wrap {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #171717;
+  aspect-ratio: 4 / 3;
+}
+
+#camera-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.hidden,
+.hidden-canvas {
+  display: none !important;
 }
 
 .frame-list {
@@ -381,5 +410,9 @@ select:focus {
   .wall-viewport {
     min-height: 440px;
     padding: 20px;
+  }
+
+  .button-row {
+    flex-direction: column;
   }
 }

@@ -1,19 +1,27 @@
 # Wall Picture Planner
 
-Wall Picture Planner is a static browser app for planning framed pictures on a wall using real dimensions.
+Wall Picture Planner is a static browser app for planning framed pictures on a wall using real dimensions in millimetres (mm).
 
 ## What it does
 
-- asks for wall width, wall height, and an inner keep-clear margin
-- optionally accepts a photo of an existing blank wall and uses it as the wall background
+- asks for wall width, wall height, and an inner keep-clear margin in millimetres (mm)
+- accepts a photo of an existing blank wall and uses it as the wall background
+- supports direct camera capture from the webpage on supported mobile and desktop browsers
 - draws the wall with an outer scene margin and a visible inner margin boundary
 - lets the user add picture frames by entering their dimensions
 - automatically redistributes all frames evenly within the usable wall area every time a frame is added or removed
 - prevents additional frames from being added when no valid layout remains
 
+## Camera notes
+
+- the file input uses `capture="environment"` so phones can open the rear camera directly when supported
+- the **Open live camera** button uses the browser camera API for live preview and capture
+- camera use requires browser permission and a secure origin such as GitHub Pages over HTTPS
+- all captured or uploaded images stay local in the browser
+
 ## How layout works
 
-The app treats the wall dimensions as the real coordinate system.
+The app treats all dimensions as millimetres (mm) and uses them as the real coordinate system.
 
 1. The usable area is the wall size minus the inner margin on all four sides.
 2. Frames are sorted largest-first for more stable packing.
@@ -47,7 +55,7 @@ Because the app is fully static, you can open `index.html` directly in a browser
 
 - `index.html` — application structure
 - `styles.css` — layout and visual styling
-- `app.js` — wall model, placement engine, and rendering logic
+- `app.js` — wall model, placement engine, camera capture, and rendering logic
 - `LICENSE` — MIT license
 
 ## License

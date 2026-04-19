@@ -16,8 +16,8 @@
         <p class="eyebrow">Open source wall layout planner</p>
         <h1>Wall Picture Planner</h1>
         <p class="subtitle">
-          Upload a blank wall photo, define the wall dimensions and the inner keep-clear margin,
-          then add picture frames until the usable area is full.
+          Take or upload a blank wall photo, define the wall dimensions and the inner keep-clear
+          margin, then add picture frames until the usable area is full.
         </p>
       </div>
     </header>
@@ -32,40 +32,54 @@
         <form id="wall-form" class="stack-form">
           <div class="grid two-up">
             <label>
-              <span>Wall width</span>
-              <input id="wall-width" name="wallWidth" type="number" min="1" step="0.1" value="240" required />
+              <span>Wall width (mm)</span>
+              <input id="wall-width" name="wallWidth" type="number" min="1" step="0.1" value="2400" required />
             </label>
             <label>
-              <span>Wall height</span>
-              <input id="wall-height" name="wallHeight" type="number" min="1" step="0.1" value="140" required />
+              <span>Wall height (mm)</span>
+              <input id="wall-height" name="wallHeight" type="number" min="1" step="0.1" value="1400" required />
             </label>
           </div>
 
           <div class="grid two-up">
             <label>
-              <span>Inner margin</span>
-              <input id="inner-margin" name="innerMargin" type="number" min="0" step="0.1" value="12" required />
+              <span>Inner margin (mm)</span>
+              <input id="inner-margin" name="innerMargin" type="number" min="0" step="0.1" value="120" required />
             </label>
             <label>
               <span>Units</span>
-              <select id="wall-unit" name="wallUnit">
-                <option value="cm" selected>Centimetres</option>
-                <option value="in">Inches</option>
-                <option value="mm">Millimetres</option>
-                <option value="m">Metres</option>
-              </select>
+              <input type="text" value="Millimetres (mm)" disabled />
             </label>
           </div>
 
           <label>
             <span>Blank wall photo</span>
-            <input id="wall-image" type="file" accept="image/*" />
-            <small class="hint">Optional. The image stays in the browser and is used as the wall background.</small>
+            <input id="wall-image" type="file" accept="image/*" capture="environment" />
+            <small class="hint">
+              On phones, this can open the camera directly. You can also use the live camera button below.
+            </small>
           </label>
 
           <div class="button-row">
-            <button type="submit">Apply wall settings</button>
+            <button id="open-camera" type="button" class="button-secondary">Open live camera</button>
             <button id="clear-wall-image" type="button" class="button-secondary">Remove photo</button>
+          </div>
+
+          <div id="camera-panel" class="camera-panel hidden" aria-live="polite">
+            <div class="camera-preview-wrap">
+              <video id="camera-video" autoplay playsinline muted></video>
+            </div>
+            <div class="button-row">
+              <button id="capture-photo" type="button">Capture wall photo</button>
+              <button id="close-camera" type="button" class="button-secondary">Close camera</button>
+            </div>
+            <small class="hint">
+              Camera access requires browser permission. GitHub Pages runs over HTTPS, which allows camera use.
+            </small>
+          </div>
+
+          <div class="button-row">
+            <button type="submit">Apply wall settings</button>
           </div>
         </form>
 
@@ -86,12 +100,12 @@
 
           <div class="grid two-up">
             <label>
-              <span>Frame width</span>
-              <input id="frame-width" name="frameWidth" type="number" min="1" step="0.1" value="30" required />
+              <span>Frame width (mm)</span>
+              <input id="frame-width" name="frameWidth" type="number" min="1" step="0.1" value="300" required />
             </label>
             <label>
-              <span>Frame height</span>
-              <input id="frame-height" name="frameHeight" type="number" min="1" step="0.1" value="40" required />
+              <span>Frame height (mm)</span>
+              <input id="frame-height" name="frameHeight" type="number" min="1" step="0.1" value="400" required />
             </label>
           </div>
 
@@ -133,6 +147,8 @@
         Static browser app suitable for GitHub Pages. All image handling stays local to the browser.
       </p>
     </footer>
+
+    <canvas id="camera-canvas" class="hidden-canvas" aria-hidden="true"></canvas>
 
     <script src="app.js"></script>
   </body>
