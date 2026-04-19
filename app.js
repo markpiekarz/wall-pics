@@ -18,7 +18,7 @@ const state = {
   cropInteraction: null,
   lastMessage: {
     type: 'info',
-    text: 'Ready. Define the wall, then add picture frames.',
+    text: 'Ready. Enter the wall size, take a photo or choose one from your gallery, then add picture frames.',
   },
 };
 
@@ -28,7 +28,10 @@ const els = {
   wallWidth: document.getElementById('wall-width'),
   wallHeight: document.getElementById('wall-height'),
   innerMargin: document.getElementById('inner-margin'),
-  wallImage: document.getElementById('wall-image'),
+  wallImageCamera: document.getElementById('wall-image-camera'),
+  wallImageGallery: document.getElementById('wall-image-gallery'),
+  takeWallPhoto: document.getElementById('take-wall-photo'),
+  chooseWallPhoto: document.getElementById('choose-wall-photo'),
   clearWallImage: document.getElementById('clear-wall-image'),
   openCamera: document.getElementById('open-camera'),
   editWallArea: document.getElementById('edit-wall-area'),
@@ -339,7 +342,7 @@ function openCropEditor(dataUrl, sourceLabel = 'photo', selection = null) {
   showCropPanel();
   renderCropSelection();
   updateEditWallAreaButton();
-  showMessage('Adjust the wall-area overlay so only the real wall sits inside it, then apply the selected wall area.', 'info');
+  showMessage(`Adjust the wall-area overlay for the ${sourceLabel}, then apply the selected wall area.`, 'info');
 }
 
 function closeCropEditor() {
@@ -348,15 +351,28 @@ function closeCropEditor() {
   updateEditWallAreaButton();
 }
 
-function handleWallImageChange(event) {
-  const file = event.target.files?.[0];
+function loadWallImageFile(file, sourceLabel = 'photo') {
   if (!file) return;
 
   const reader = new FileReader();
   reader.onload = () => {
-    openCropEditor(String(reader.result), 'photo');
+    openCropEditor(String(reader.result), sourceLabel);
   };
   reader.readAsDataURL(file);
+}
+
+function handleWallImageChange(event) {
+  const file = event.target.files?.[0];
+  const sourceLabel = event.target === els.wallImageCamera ? 'camera photo' : 'gallery photo';
+  loadWallImageFile(file, sourceLabel);
+}
+
+function triggerCameraInput() {
+  els.wallImageCamera.click();
+}
+
+function triggerGalleryInput() {
+  els.wallImageGallery.click();
 }
 
 function clearWallImage() {
@@ -364,7 +380,8 @@ function clearWallImage() {
   state.wall.sourceImage = null;
   state.wall.cropSelection = null;
   state.pendingCrop = null;
-  els.wallImage.value = '';
+  els.wallImageCamera.value = '';
+  els.wallImageGallery.value = '';
   hideCropPanel();
   updateEditWallAreaButton();
   renderWall();
@@ -390,7 +407,7 @@ async function openCamera() {
     els.cameraVideo.srcObject = stream;
     els.cameraPanel.classList.remove('hidden');
     await els.cameraVideo.play();
-    showMessage('Camera opened. Aim at the blank wall and capture the photo.', 'info');
+    showMessage('Live preview camera opened. On phones, the main Take wall photo button is usually faster.', 'info');
   } catch (error) {
     const message = error && typeof error === 'object' && 'name' in error ? String(error.name) : 'CameraError';
     if (message === 'NotAllowedError' || message === 'SecurityError') {
@@ -470,6 +487,8 @@ function applyPendingCrop() {
   const croppedDataUrl = els.cameraCanvas.toDataURL('image/jpeg', 0.92);
 
   state.wall.sourceImage = state.pendingCrop.dataUrl;
+  els.wallImageCamera.value = '';
+  els.wallImageGallery.value = '';
   state.wall.cropSelection = cloneSelection(selection);
   state.wall.backgroundImage = croppedDataUrl;
   hideCropPanel();
@@ -751,7 +770,10 @@ function init() {
   render();
 
   els.wallForm.addEventListener('submit', handleWallFormSubmit);
-  els.wallImage.addEventListener('change', handleWallImageChange);
+  els.wallImageCamera.addEventListener('change', handleWallImageChange);
+  els.wallImageGallery.addEventListener('change', handleWallImageChange);
+  els.takeWallPhoto.addEventListener('click', triggerCameraInput);
+  els.chooseWallPhoto.addEventListener('click', triggerGalleryInput);
   els.openCamera.addEventListener('click', openCamera);
   els.editWallArea.addEventListener('click', editWallArea);
   els.capturePhoto.addEventListener('click', capturePhoto);

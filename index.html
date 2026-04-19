@@ -52,18 +52,25 @@
             </label>
           </div>
 
-          <label>
-            <span>Blank wall photo</span>
-            <input id="wall-image" type="file" accept="image/*" capture="environment" />
-            <small class="hint">
-              On phones, this can open the camera directly. You can also use the live camera button below.
-            </small>
-          </label>
+          <div class="photo-source-card">
+            <div class="photo-source-copy">
+              <span>Wall photo</span>
+              <small class="hint">Mobile first: take a wall photo now or choose one from your phone gallery.</small>
+            </div>
 
-          <div class="button-row">
-            <button id="open-camera" type="button" class="button-secondary">Open live camera</button>
-            <button id="edit-wall-area" type="button" class="button-secondary hidden">Adjust wall area</button>
-            <button id="clear-wall-image" type="button" class="button-secondary">Remove photo</button>
+            <input id="wall-image-camera" class="hidden" type="file" accept="image/*" capture="environment" />
+            <input id="wall-image-gallery" class="hidden" type="file" accept="image/*" />
+
+            <div class="photo-actions-grid">
+              <button id="take-wall-photo" type="button" class="photo-action-button">Take wall photo</button>
+              <button id="choose-wall-photo" type="button" class="button-secondary photo-action-button">Choose from gallery</button>
+            </div>
+
+            <div class="button-row utility-actions-row">
+              <button id="open-camera" type="button" class="button-secondary">Use live preview camera</button>
+              <button id="edit-wall-area" type="button" class="button-secondary hidden">Adjust wall area</button>
+              <button id="clear-wall-image" type="button" class="button-secondary">Remove photo</button>
+            </div>
           </div>
 
           <div id="camera-panel" class="camera-panel hidden" aria-live="polite">
@@ -117,7 +124,7 @@
         <div class="stats-card" id="wall-summary"></div>
       </section>
 
-      <section class="panel controls-panel">
+      <section class="panel controls-panel frames-panel">
         <div class="section-heading">
           <h2>2. Add picture frames</h2>
           <p>Frames are automatically rearranged to stay evenly distributed in the usable wall area.</p>
@@ -161,7 +168,7 @@
       <section class="panel preview-panel">
         <div class="section-heading">
           <h2>3. Wall preview</h2>
-          <p>The dashed rectangle shows the inner margin boundary that picture edges may not cross.</p>
+          <p>The dashed rectangle shows the inner margin boundary that picture edges may not cross. On phones, the preview stays large and touch-friendly.</p>
         </div>
 
         <div id="wall-viewport" class="wall-viewport">
