@@ -62,6 +62,7 @@
 
           <div class="button-row">
             <button id="open-camera" type="button" class="button-secondary">Open live camera</button>
+            <button id="edit-wall-area" type="button" class="button-secondary hidden">Adjust wall area</button>
             <button id="clear-wall-image" type="button" class="button-secondary">Remove photo</button>
           </div>
 
@@ -75,6 +76,36 @@
             </div>
             <small class="hint">
               Camera access requires browser permission. GitHub Pages runs over HTTPS, which allows camera use.
+            </small>
+          </div>
+
+          <div id="crop-panel" class="crop-panel hidden" aria-live="polite">
+            <div class="section-heading compact">
+              <h3>Choose the wall area in the photo</h3>
+              <p>
+                Drag the bright rectangle or its corner handles so it covers only the wall area that matches the
+                dimensions above. The shaded area will be ignored.
+              </p>
+            </div>
+
+            <div id="crop-stage" class="crop-stage">
+              <img id="crop-image" alt="Wall photo crop preview" />
+              <div id="crop-selection" class="crop-selection">
+                <button type="button" class="crop-handle handle-nw" data-handle="nw" aria-label="Resize top left"></button>
+                <button type="button" class="crop-handle handle-ne" data-handle="ne" aria-label="Resize top right"></button>
+                <button type="button" class="crop-handle handle-sw" data-handle="sw" aria-label="Resize bottom left"></button>
+                <button type="button" class="crop-handle handle-se" data-handle="se" aria-label="Resize bottom right"></button>
+                <div class="crop-selection-label">Selected wall area</div>
+              </div>
+            </div>
+
+            <div class="button-row">
+              <button id="apply-crop" type="button">Use selected wall area</button>
+              <button id="reset-crop" type="button" class="button-secondary">Reset selection</button>
+              <button id="cancel-crop" type="button" class="button-secondary">Close</button>
+            </div>
+            <small class="hint">
+              Best results come from selecting only the true wall plane inside the photo.
             </small>
           </div>
 

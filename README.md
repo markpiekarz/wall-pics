@@ -7,10 +7,21 @@ Wall Picture Planner is a static browser app for planning framed pictures on a w
 - asks for wall width, wall height, and an inner keep-clear margin in millimetres (mm)
 - accepts a photo of an existing blank wall and uses it as the wall background
 - supports direct camera capture from the webpage on supported mobile and desktop browsers
+- adds an interactive shaded wall-area overlay so the user can define which rectangle in the photo corresponds to the supplied wall dimensions
 - draws the wall with an outer scene margin and a visible inner margin boundary
 - lets the user add picture frames by entering their dimensions
 - automatically redistributes all frames evenly within the usable wall area every time a frame is added or removed
 - prevents additional frames from being added when no valid layout remains
+
+## Photo alignment workflow
+
+1. Upload or capture the blank wall photo.
+2. A shaded overlay editor opens automatically.
+3. Drag the bright selection rectangle or its corner handles so it covers only the real wall area.
+4. Apply the selected wall area.
+5. The cropped selection becomes the wall background used by the planner.
+
+This is the best approach for this app because it stays simple on phones, makes the wall bounds obvious, and avoids forcing the user to type photo offsets manually.
 
 ## Camera notes
 
@@ -55,7 +66,7 @@ Because the app is fully static, you can open `index.html` directly in a browser
 
 - `index.html` — application structure
 - `styles.css` — layout and visual styling
-- `app.js` — wall model, placement engine, camera capture, and rendering logic
+- `app.js` — wall model, placement engine, camera capture, and wall-area overlay logic
 - `LICENSE` — MIT license
 
 ## License

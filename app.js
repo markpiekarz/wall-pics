@@ -1,3 +1,5 @@
+const MIN_CROP_SIZE = 0.12;
+
 const state = {
   wall: {
     width: 2400,
@@ -5,11 +7,15 @@ const state = {
     innerMargin: 120,
     unit: 'mm',
     backgroundImage: null,
+    sourceImage: null,
+    cropSelection: null,
   },
   frames: [],
   nextId: 1,
   layout: null,
   cameraStream: null,
+  pendingCrop: null,
+  cropInteraction: null,
   lastMessage: {
     type: 'info',
     text: 'Ready. Define the wall, then add picture frames.',
@@ -25,11 +31,19 @@ const els = {
   wallImage: document.getElementById('wall-image'),
   clearWallImage: document.getElementById('clear-wall-image'),
   openCamera: document.getElementById('open-camera'),
+  editWallArea: document.getElementById('edit-wall-area'),
   closeCamera: document.getElementById('close-camera'),
   capturePhoto: document.getElementById('capture-photo'),
   cameraPanel: document.getElementById('camera-panel'),
   cameraVideo: document.getElementById('camera-video'),
   cameraCanvas: document.getElementById('camera-canvas'),
+  cropPanel: document.getElementById('crop-panel'),
+  cropStage: document.getElementById('crop-stage'),
+  cropImage: document.getElementById('crop-image'),
+  cropSelection: document.getElementById('crop-selection'),
+  applyCrop: document.getElementById('apply-crop'),
+  resetCrop: document.getElementById('reset-crop'),
+  cancelCrop: document.getElementById('cancel-crop'),
   clearFrames: document.getElementById('clear-frames'),
   frameName: document.getElementById('frame-name'),
   frameWidth: document.getElementById('frame-width'),
@@ -52,6 +66,28 @@ function formatNumber(value) {
 
 function areaLabel(width, height, unit) {
   return `${formatNumber(width)} × ${formatNumber(height)} ${unit}`;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function cloneSelection(selection) {
+  return {
+    x: selection.x,
+    y: selection.y,
+    w: selection.w,
+    h: selection.h,
+  };
+}
+
+function getDefaultCropSelection() {
+  return {
+    x: 0.08,
+    y: 0.08,
+    w: 0.84,
+    h: 0.84,
+  };
 }
 
 function showMessage(text, type = 'info') {
@@ -236,6 +272,10 @@ function applyWallSettings(nextWall, options = {}) {
     ...nextWall,
     backgroundImage:
       options.keepExistingImage === false ? null : options.backgroundImage ?? state.wall.backgroundImage,
+    sourceImage:
+      options.keepExistingImage === false ? null : options.sourceImage ?? state.wall.sourceImage,
+    cropSelection:
+      options.keepExistingImage === false ? null : options.cropSelection ?? state.wall.cropSelection,
   };
   state.layout = layout;
   render();
@@ -253,7 +293,7 @@ function handleWallFormSubmit(event) {
     unit: 'mm',
   };
 
-  if (Object.values(nextWall).some((value) => value === '' || Number.isNaN(value))) {
+  if ([nextWall.width, nextWall.height, nextWall.innerMargin].some((value) => Number.isNaN(value))) {
     showMessage('Enter valid numeric wall values.', 'error');
     return;
   }
@@ -266,10 +306,46 @@ function handleWallFormSubmit(event) {
   applyWallSettings(nextWall);
 }
 
-function applyWallImage(dataUrl, sourceLabel = 'photo') {
-  state.wall.backgroundImage = dataUrl;
-  renderWall();
-  showMessage(`Blank wall ${sourceLabel} applied as the background.`, 'info');
+function showCropPanel() {
+  els.cropPanel.classList.remove('hidden');
+}
+
+function hideCropPanel() {
+  els.cropPanel.classList.add('hidden');
+  state.cropInteraction = null;
+}
+
+function updateEditWallAreaButton() {
+  const hasPhoto = Boolean(state.wall.sourceImage || state.pendingCrop?.dataUrl);
+  els.editWallArea.classList.toggle('hidden', !hasPhoto);
+}
+
+function renderCropSelection() {
+  if (!state.pendingCrop) return;
+  const { x, y, w, h } = state.pendingCrop.selection;
+  els.cropSelection.style.left = `${x * 100}%`;
+  els.cropSelection.style.top = `${y * 100}%`;
+  els.cropSelection.style.width = `${w * 100}%`;
+  els.cropSelection.style.height = `${h * 100}%`;
+}
+
+function openCropEditor(dataUrl, sourceLabel = 'photo', selection = null) {
+  state.pendingCrop = {
+    dataUrl,
+    sourceLabel,
+    selection: cloneSelection(selection ?? getDefaultCropSelection()),
+  };
+  els.cropImage.src = dataUrl;
+  showCropPanel();
+  renderCropSelection();
+  updateEditWallAreaButton();
+  showMessage('Adjust the wall-area overlay so only the real wall sits inside it, then apply the selected wall area.', 'info');
+}
+
+function closeCropEditor() {
+  hideCropPanel();
+  state.pendingCrop = null;
+  updateEditWallAreaButton();
 }
 
 function handleWallImageChange(event) {
@@ -278,14 +354,19 @@ function handleWallImageChange(event) {
 
   const reader = new FileReader();
   reader.onload = () => {
-    applyWallImage(String(reader.result), 'photo');
+    openCropEditor(String(reader.result), 'photo');
   };
   reader.readAsDataURL(file);
 }
 
 function clearWallImage() {
   state.wall.backgroundImage = null;
+  state.wall.sourceImage = null;
+  state.wall.cropSelection = null;
+  state.pendingCrop = null;
   els.wallImage.value = '';
+  hideCropPanel();
+  updateEditWallAreaButton();
   renderWall();
   showMessage('Wall photo removed.', 'info');
 }
@@ -348,8 +429,140 @@ function capturePhoto() {
   const ctx = els.cameraCanvas.getContext('2d');
   ctx.drawImage(els.cameraVideo, 0, 0, videoWidth, videoHeight);
   const dataUrl = els.cameraCanvas.toDataURL('image/jpeg', 0.92);
-  applyWallImage(dataUrl, 'camera photo');
   stopCamera();
+  openCropEditor(dataUrl, 'camera photo');
+}
+
+function editWallArea() {
+  if (!state.wall.sourceImage) {
+    showMessage('Upload or capture a wall photo first.', 'error');
+    return;
+  }
+  openCropEditor(state.wall.sourceImage, 'photo', state.wall.cropSelection ?? getDefaultCropSelection());
+}
+
+function resetCropSelection() {
+  if (!state.pendingCrop) return;
+  state.pendingCrop.selection = getDefaultCropSelection();
+  renderCropSelection();
+}
+
+function applyPendingCrop() {
+  if (!state.pendingCrop) return;
+  if (!els.cropImage.complete || !els.cropImage.naturalWidth || !els.cropImage.naturalHeight) {
+    showMessage('The photo is still loading. Wait a moment and try again.', 'error');
+    return;
+  }
+
+  const selection = state.pendingCrop.selection;
+  const sourceWidth = els.cropImage.naturalWidth;
+  const sourceHeight = els.cropImage.naturalHeight;
+  const sx = Math.round(selection.x * sourceWidth);
+  const sy = Math.round(selection.y * sourceHeight);
+  const sw = Math.max(1, Math.round(selection.w * sourceWidth));
+  const sh = Math.max(1, Math.round(selection.h * sourceHeight));
+
+  els.cameraCanvas.width = sw;
+  els.cameraCanvas.height = sh;
+  const ctx = els.cameraCanvas.getContext('2d');
+  ctx.clearRect(0, 0, sw, sh);
+  ctx.drawImage(els.cropImage, sx, sy, sw, sh, 0, 0, sw, sh);
+  const croppedDataUrl = els.cameraCanvas.toDataURL('image/jpeg', 0.92);
+
+  state.wall.sourceImage = state.pendingCrop.dataUrl;
+  state.wall.cropSelection = cloneSelection(selection);
+  state.wall.backgroundImage = croppedDataUrl;
+  hideCropPanel();
+  state.pendingCrop = null;
+  updateEditWallAreaButton();
+  renderWall();
+  showMessage('Selected wall area applied as the background.', 'info');
+}
+
+function beginCropInteraction(event) {
+  if (!state.pendingCrop) return;
+  const target = event.target;
+  const isHandle = target instanceof HTMLElement && target.dataset.handle;
+  const isSelection = target === els.cropSelection || els.cropSelection.contains(target);
+
+  if (!isHandle && !isSelection) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const mode = isHandle ? `resize-${target.dataset.handle}` : 'move';
+  state.cropInteraction = {
+    pointerId: event.pointerId,
+    mode,
+    startX: event.clientX,
+    startY: event.clientY,
+    startSelection: cloneSelection(state.pendingCrop.selection),
+  };
+
+  els.cropStage.setPointerCapture?.(event.pointerId);
+}
+
+function updateCropInteraction(event) {
+  if (!state.cropInteraction || !state.pendingCrop) return;
+  if (event.pointerId !== state.cropInteraction.pointerId) return;
+
+  const stageRect = els.cropStage.getBoundingClientRect();
+  if (!stageRect.width || !stageRect.height) return;
+
+  const dx = (event.clientX - state.cropInteraction.startX) / stageRect.width;
+  const dy = (event.clientY - state.cropInteraction.startY) / stageRect.height;
+  const start = state.cropInteraction.startSelection;
+  const selection = cloneSelection(start);
+
+  if (state.cropInteraction.mode === 'move') {
+    selection.x = clamp(start.x + dx, 0, 1 - start.w);
+    selection.y = clamp(start.y + dy, 0, 1 - start.h);
+  } else {
+    const handle = state.cropInteraction.mode.replace('resize-', '');
+    const left = start.x;
+    const top = start.y;
+    const right = start.x + start.w;
+    const bottom = start.y + start.h;
+
+    let newLeft = left;
+    let newTop = top;
+    let newRight = right;
+    let newBottom = bottom;
+
+    if (handle.includes('w')) {
+      newLeft = clamp(left + dx, 0, right - MIN_CROP_SIZE);
+    }
+    if (handle.includes('e')) {
+      newRight = clamp(right + dx, left + MIN_CROP_SIZE, 1);
+    }
+    if (handle.includes('n')) {
+      newTop = clamp(top + dy, 0, bottom - MIN_CROP_SIZE);
+    }
+    if (handle.includes('s')) {
+      newBottom = clamp(bottom + dy, top + MIN_CROP_SIZE, 1);
+    }
+
+    selection.x = newLeft;
+    selection.y = newTop;
+    selection.w = newRight - newLeft;
+    selection.h = newBottom - newTop;
+  }
+
+  state.pendingCrop.selection = selection;
+  renderCropSelection();
+}
+
+function endCropInteraction(event) {
+  if (!state.cropInteraction) return;
+  if (event && event.pointerId !== undefined && event.pointerId !== state.cropInteraction.pointerId) return;
+  try {
+    if (event?.pointerId !== undefined) {
+      els.cropStage.releasePointerCapture?.(event.pointerId);
+    }
+  } catch (error) {
+    // no-op
+  }
+  state.cropInteraction = null;
 }
 
 function addFrame(event) {
@@ -414,6 +627,8 @@ function renderSummary() {
     ? `${state.layout.rowCount || 0} row${state.layout.rowCount === 1 ? '' : 's'} in use`
     : 'No valid layout';
 
+  const photoLine = state.wall.backgroundImage ? 'Wall photo aligned' : 'No wall photo';
+
   els.wallSummary.innerHTML = `
     <div><strong>Wall:</strong> ${areaLabel(state.wall.width, state.wall.height, state.wall.unit)}</div>
     <div><strong>Inner margin:</strong> ${formatNumber(state.wall.innerMargin)} ${state.wall.unit}</div>
@@ -421,6 +636,7 @@ function renderSummary() {
     <div><strong>Frames:</strong> ${state.frames.length}</div>
     <div><strong>Filled area:</strong> ${fillPct}%</div>
     <div><strong>Layout:</strong> ${layoutLine}</div>
+    <div><strong>Photo:</strong> ${photoLine}</div>
   `;
 }
 
@@ -511,9 +727,13 @@ function renderWall() {
 }
 
 function render() {
+  updateEditWallAreaButton();
   renderSummary();
   renderFrameList();
   renderWall();
+  if (state.pendingCrop) {
+    renderCropSelection();
+  }
   showMessage(state.lastMessage.text, state.lastMessage.type);
 }
 
@@ -533,15 +753,34 @@ function init() {
   els.wallForm.addEventListener('submit', handleWallFormSubmit);
   els.wallImage.addEventListener('change', handleWallImageChange);
   els.openCamera.addEventListener('click', openCamera);
+  els.editWallArea.addEventListener('click', editWallArea);
   els.capturePhoto.addEventListener('click', capturePhoto);
   els.closeCamera.addEventListener('click', stopCamera);
   els.clearWallImage.addEventListener('click', clearWallImage);
+  els.applyCrop.addEventListener('click', applyPendingCrop);
+  els.resetCrop.addEventListener('click', resetCropSelection);
+  els.cancelCrop.addEventListener('click', closeCropEditor);
+  els.cropSelection.addEventListener('pointerdown', beginCropInteraction);
+  els.cropSelection.querySelectorAll('[data-handle]').forEach((handle) => {
+    handle.addEventListener('pointerdown', beginCropInteraction);
+  });
+  els.cropStage.addEventListener('pointermove', updateCropInteraction);
+  els.cropStage.addEventListener('pointerup', endCropInteraction);
+  els.cropStage.addEventListener('pointercancel', endCropInteraction);
   els.frameForm.addEventListener('submit', addFrame);
   els.clearFrames.addEventListener('click', clearFrames);
+  els.cropImage.addEventListener('load', renderCropSelection);
 
-  const resizeObserver = new ResizeObserver(() => renderWall());
+  const resizeObserver = new ResizeObserver(() => {
+    renderWall();
+    renderCropSelection();
+  });
   resizeObserver.observe(els.wallViewport);
-  window.addEventListener('resize', renderWall);
+  resizeObserver.observe(els.cropStage);
+  window.addEventListener('resize', () => {
+    renderWall();
+    renderCropSelection();
+  });
   window.addEventListener('beforeunload', stopCamera);
 }
 
