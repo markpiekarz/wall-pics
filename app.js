@@ -1,4 +1,7 @@
 const MIN_CROP_SIZE = 0.12;
+const STORAGE_KEY = 'wall-picture-planner-v4';
+const MAX_IMAGE_DIMENSION = 1600;
+const IMAGE_QUALITY = 0.84;
 
 const state = {
   wall: {
@@ -12,7 +15,9 @@ const state = {
   },
   frames: [],
   nextId: 1,
-  layout: null,
+  layoutCandidates: [],
+  selectedLayoutIndex: 0,
+  selectedLayoutKey: null,
   cameraStream: null,
   pendingCrop: null,
   cropInteraction: null,
@@ -39,10 +44,8 @@ const els = {
   capturePhoto: document.getElementById('capture-photo'),
   cameraModal: document.getElementById('camera-modal'),
   cropModal: document.getElementById('crop-modal'),
-  cameraPanel: document.getElementById('camera-panel'),
   cameraVideo: document.getElementById('camera-video'),
   cameraCanvas: document.getElementById('camera-canvas'),
-  cropPanel: document.getElementById('crop-panel'),
   cropStage: document.getElementById('crop-stage'),
   cropImage: document.getElementById('crop-image'),
   cropSelection: document.getElementById('crop-selection'),
@@ -65,6 +68,10 @@ const els = {
   photoPreviewImage: document.getElementById('photo-preview-image'),
   photoPreviewTitle: document.getElementById('photo-preview-title'),
   photoPreviewMeta: document.getElementById('photo-preview-meta'),
+  layoutName: document.getElementById('layout-name'),
+  layoutMeta: document.getElementById('layout-meta'),
+  prevLayout: document.getElementById('prev-layout'),
+  nextLayout: document.getElementById('next-layout'),
 };
 
 function formatNumber(value) {
@@ -99,6 +106,15 @@ function getDefaultCropSelection() {
   };
 }
 
+function escapeHtml(value) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function showMessage(text, type = 'info') {
   state.lastMessage = { text, type };
   els.statusBanner.textContent = text;
@@ -122,148 +138,286 @@ function closeModal(modal) {
   syncBodyModalState();
 }
 
-function computeLayout(frames, wall) {
+function getActiveLayout() {
+  return state.layoutCandidates[state.selectedLayoutIndex] ?? state.layoutCandidates[0] ?? null;
+}
+
+function updateSelectedLayoutByKey() {
+  if (!state.selectedLayoutKey) {
+    state.selectedLayoutIndex = 0;
+    return;
+  }
+  const foundIndex = state.layoutCandidates.findIndex((candidate) => candidate.key === state.selectedLayoutKey);
+  state.selectedLayoutIndex = foundIndex >= 0 ? foundIndex : 0;
+}
+
+function persistState() {
+  try {
+    const activeLayout = getActiveLayout();
+    const payload = {
+      version: 4,
+      wall: state.wall,
+      frames: state.frames,
+      nextId: state.nextId,
+      selectedLayoutKey: activeLayout?.key ?? null,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    showMessage('The browser could not save everything locally. Some data may not persist after refresh.', 'error');
+  }
+}
+
+function restoreState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return;
+
+    if (parsed.wall && typeof parsed.wall === 'object') {
+      state.wall = {
+        width: Number(parsed.wall.width) || 2400,
+        height: Number(parsed.wall.height) || 1400,
+        innerMargin: Number(parsed.wall.innerMargin) || 120,
+        unit: 'mm',
+        backgroundImage: typeof parsed.wall.backgroundImage === 'string' ? parsed.wall.backgroundImage : null,
+        sourceImage: typeof parsed.wall.sourceImage === 'string' ? parsed.wall.sourceImage : null,
+        cropSelection:
+          parsed.wall.cropSelection && typeof parsed.wall.cropSelection === 'object'
+            ? {
+                x: clamp(Number(parsed.wall.cropSelection.x) || 0.08, 0, 1),
+                y: clamp(Number(parsed.wall.cropSelection.y) || 0.08, 0, 1),
+                w: clamp(Number(parsed.wall.cropSelection.w) || 0.84, MIN_CROP_SIZE, 1),
+                h: clamp(Number(parsed.wall.cropSelection.h) || 0.84, MIN_CROP_SIZE, 1),
+              }
+            : null,
+      };
+    }
+
+    if (Array.isArray(parsed.frames)) {
+      state.frames = parsed.frames
+        .filter((frame) => frame && Number(frame.width) > 0 && Number(frame.height) > 0)
+        .map((frame, index) => ({
+          id: Number(frame.id) || index + 1,
+          name: typeof frame.name === 'string' && frame.name.trim() ? frame.name.trim() : `Picture ${index + 1}`,
+          width: Number(frame.width),
+          height: Number(frame.height),
+        }));
+    }
+
+    state.nextId = Number(parsed.nextId) > 0 ? Number(parsed.nextId) : state.frames.length + 1;
+    state.selectedLayoutKey = typeof parsed.selectedLayoutKey === 'string' ? parsed.selectedLayoutKey : null;
+  } catch (error) {
+    console.warn('Could not restore saved state', error);
+  }
+}
+
+function resizeImageDataUrl(dataUrl, maxDimension = MAX_IMAGE_DIMENSION, quality = IMAGE_QUALITY) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      let width = image.naturalWidth;
+      let height = image.naturalHeight;
+      if (!width || !height) {
+        reject(new Error('ImageLoadError'));
+        return;
+      }
+
+      const scale = Math.min(1, maxDimension / Math.max(width, height));
+      width = Math.max(1, Math.round(width * scale));
+      height = Math.max(1, Math.round(height * scale));
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    image.onerror = () => reject(new Error('ImageLoadError'));
+    image.src = dataUrl;
+  });
+}
+
+function getFrameArea(frame) {
+  return frame.width * frame.height;
+}
+
+function getCenterOutIndexes(length, flipped = false) {
+  const indexes = [];
+  if (length <= 0) return indexes;
+
+  if (length % 2 === 1) {
+    const center = Math.floor(length / 2);
+    indexes.push(center);
+    for (let offset = 1; offset <= center; offset += 1) {
+      if (flipped) {
+        indexes.push(center + offset, center - offset);
+      } else {
+        indexes.push(center - offset, center + offset);
+      }
+    }
+    return indexes.filter((index) => index >= 0 && index < length);
+  }
+
+  const leftCenter = length / 2 - 1;
+  const rightCenter = length / 2;
+  indexes.push(flipped ? rightCenter : leftCenter, flipped ? leftCenter : rightCenter);
+  for (let offset = 1; offset <= leftCenter; offset += 1) {
+    if (flipped) {
+      indexes.push(rightCenter + offset, leftCenter - offset);
+    } else {
+      indexes.push(leftCenter - offset, rightCenter + offset);
+    }
+  }
+  return indexes.filter((index) => index >= 0 && index < length);
+}
+
+function arrangeSymmetrically(items, variant = 0) {
+  if (items.length <= 2) {
+    return variant % 2 === 1 ? [...items].reverse() : [...items];
+  }
+  const sorted = [...items].sort((a, b) => {
+    const areaDiff = getFrameArea(b) - getFrameArea(a);
+    if (areaDiff !== 0) return areaDiff;
+    return b.width - a.width || a.id - b.id;
+  });
+  const slots = new Array(sorted.length);
+  const centerIndexes = getCenterOutIndexes(sorted.length, variant % 2 === 1);
+  sorted.forEach((item, index) => {
+    slots[centerIndexes[index]] = item;
+  });
+  const arranged = slots.filter(Boolean);
+  return variant >= 2 ? arranged.reverse() : arranged;
+}
+
+function distributeCountsEvenly(total, parts) {
+  const base = Math.floor(total / parts);
+  const remainder = total % parts;
+  return Array.from({ length: parts }, (_, index) => base + (index < remainder ? 1 : 0));
+}
+
+function centerBoostCounts(counts) {
+  if (counts.length < 3) return counts;
+  const boosted = [...counts];
+  const centerIndexes = boosted.length % 2 === 1 ? [Math.floor(boosted.length / 2)] : [boosted.length / 2 - 1, boosted.length / 2];
+  const donorIndexes = [];
+  for (let i = 0; i < boosted.length; i += 1) {
+    const fromEdge = Math.min(i, boosted.length - 1 - i);
+    donorIndexes.push({ index: i, fromEdge });
+  }
+  donorIndexes.sort((a, b) => a.fromEdge - b.fromEdge || a.index - b.index);
+
+  for (const donor of donorIndexes) {
+    if (centerIndexes.includes(donor.index)) continue;
+    if (boosted[donor.index] <= 1) continue;
+    boosted[donor.index] -= 1;
+    boosted[centerIndexes[0]] += 1;
+    break;
+  }
+  return boosted;
+}
+
+function getRowCountPatterns(total) {
+  const maxRows = Math.min(total, 4);
+  const patterns = [];
+  const seen = new Set();
+
+  for (let rows = 1; rows <= maxRows; rows += 1) {
+    const base = distributeCountsEvenly(total, rows);
+    const variants = [base, [...base].reverse(), centerBoostCounts(base), centerBoostCounts([...base].reverse())];
+
+    for (const candidate of variants) {
+      const cleaned = candidate.filter((count) => count > 0);
+      const key = cleaned.join('-');
+      if (!seen.has(key)) {
+        seen.add(key);
+        patterns.push(cleaned);
+      }
+    }
+  }
+
+  return patterns;
+}
+
+function getOrderingVariants(frames) {
+  const byAreaDesc = [...frames].sort((a, b) => getFrameArea(b) - getFrameArea(a) || b.width - a.width || a.id - b.id);
+  const byAreaAsc = [...byAreaDesc].reverse();
+  const byLandscapeThenPortrait = [...frames].sort((a, b) => {
+    const landscapeDiff = Number(b.width >= b.height) - Number(a.width >= a.height);
+    if (landscapeDiff !== 0) return landscapeDiff;
+    return getFrameArea(b) - getFrameArea(a) || a.id - b.id;
+  });
+  const portraits = byAreaDesc.filter((frame) => frame.height > frame.width);
+  const landscapes = byAreaDesc.filter((frame) => frame.width >= frame.height);
+  const alternating = [];
+  while (portraits.length || landscapes.length) {
+    if (landscapes.length) alternating.push(landscapes.shift());
+    if (portraits.length) alternating.push(portraits.shift());
+  }
+  const bySquareness = [...frames].sort((a, b) => {
+    const da = Math.abs(a.width / a.height - 1);
+    const db = Math.abs(b.width / b.height - 1);
+    return da - db || getFrameArea(b) - getFrameArea(a) || a.id - b.id;
+  });
+
+  return [
+    { key: 'area-desc', name: 'Balanced row gallery', frames: byAreaDesc },
+    { key: 'area-asc', name: 'Alternating mosaic', frames: byAreaAsc },
+    { key: 'landscape-mix', name: 'Landscape-led gallery', frames: byLandscapeThenPortrait },
+    { key: 'alternating', name: 'Center-weighted stack', frames: alternating },
+    { key: 'square-first', name: 'Even gallery wall', frames: bySquareness },
+  ];
+}
+
+function sliceFramesByCounts(frames, counts) {
+  const groups = [];
+  let cursor = 0;
+  for (const count of counts) {
+    groups.push(frames.slice(cursor, cursor + count));
+    cursor += count;
+  }
+  return groups;
+}
+
+function placeRows(rowGroups, wall) {
   const usableWidth = wall.width - wall.innerMargin * 2;
   const usableHeight = wall.height - wall.innerMargin * 2;
 
   if (usableWidth <= 0 || usableHeight <= 0) {
-    return {
-      ok: false,
-      reason: 'The inner margin is too large for the selected wall dimensions.',
-    };
+    return { ok: false, reason: 'The inner margin is too large for the selected wall dimensions.' };
   }
 
-  for (const frame of frames) {
-    if (frame.width > usableWidth || frame.height > usableHeight) {
-      return {
-        ok: false,
-        reason: `“${frame.name}” is too large to fit inside the usable wall area.`,
-      };
-    }
+  const rowWidths = rowGroups.map((row) => row.reduce((sum, frame) => sum + frame.width, 0));
+  const rowHeights = rowGroups.map((row) => row.reduce((max, frame) => Math.max(max, frame.height), 0));
+
+  if (rowWidths.some((width) => width > usableWidth)) {
+    return { ok: false, reason: 'At least one row is too wide for the usable wall area.' };
   }
 
-  if (!frames.length) {
-    return {
-      ok: true,
-      usableWidth,
-      usableHeight,
-      placements: new Map(),
-      rows: [],
-      minGap: Math.min(usableWidth, usableHeight),
-      rowCount: 0,
-    };
+  const totalRowHeight = rowHeights.reduce((sum, value) => sum + value, 0);
+  if (totalRowHeight > usableHeight) {
+    return { ok: false, reason: 'The rows are too tall for the usable wall area.' };
   }
 
-  const ordered = [...frames].sort((a, b) => {
-    const areaDiff = b.width * b.height - a.width * a.height;
-    if (areaDiff !== 0) return areaDiff;
-    if (b.height !== a.height) return b.height - a.height;
-    return a.id - b.id;
-  });
-
-  const n = ordered.length;
-  const segWidth = Array.from({ length: n }, () => Array(n).fill(0));
-  const segHeight = Array.from({ length: n }, () => Array(n).fill(0));
-
-  for (let i = 0; i < n; i += 1) {
-    let runningWidth = 0;
-    let runningHeight = 0;
-    for (let j = i; j < n; j += 1) {
-      runningWidth += ordered[j].width;
-      runningHeight = Math.max(runningHeight, ordered[j].height);
-      segWidth[i][j] = runningWidth;
-      segHeight[i][j] = runningHeight;
-    }
-  }
-
-  let best = null;
-
-  for (let rows = 1; rows <= n; rows += 1) {
-    const dp = Array.from({ length: n + 1 }, () => Array(rows + 1).fill(Number.POSITIVE_INFINITY));
-    const parent = Array.from({ length: n + 1 }, () => Array(rows + 1).fill(null));
-    dp[0][0] = 0;
-
-    for (let i = 1; i <= n; i += 1) {
-      for (let r = 1; r <= rows; r += 1) {
-        for (let start = r - 1; start <= i - 1; start += 1) {
-          if (!Number.isFinite(dp[start][r - 1])) continue;
-          const rowWidth = segWidth[start][i - 1];
-          if (rowWidth > usableWidth) continue;
-          const slack = usableWidth - rowWidth;
-          const rowHeight = segHeight[start][i - 1];
-          const cost = dp[start][r - 1] + slack * slack + rowHeight * 0.001;
-          if (cost < dp[i][r]) {
-            dp[i][r] = cost;
-            parent[i][r] = start;
-          }
-        }
-      }
-    }
-
-    if (!Number.isFinite(dp[n][rows])) continue;
-
-    const rowSegments = [];
-    let i = n;
-    let r = rows;
-    while (r > 0) {
-      const start = parent[i][r];
-      if (start === null || start === undefined) break;
-      rowSegments.unshift([start, i - 1]);
-      i = start;
-      r -= 1;
-    }
-
-    if (rowSegments.length !== rows) continue;
-
-    const rowHeights = rowSegments.map(([start, end]) => segHeight[start][end]);
-    const totalRowHeight = rowHeights.reduce((sum, value) => sum + value, 0);
-    if (totalRowHeight > usableHeight) continue;
-
-    const verticalGap = (usableHeight - totalRowHeight) / (rows + 1);
-    let minGap = verticalGap;
-    const rowData = rowSegments.map(([start, end], index) => {
-      const items = ordered.slice(start, end + 1);
-      const rowWidth = segWidth[start][end];
-      const rowHeight = rowHeights[index];
-      const horizontalGap = (usableWidth - rowWidth) / (items.length + 1);
-      minGap = Math.min(minGap, horizontalGap);
-      return {
-        items,
-        rowWidth,
-        rowHeight,
-        horizontalGap,
-      };
-    });
-
-    const gapBalancePenalty = rowData.reduce((sum, row) => sum + Math.abs(row.horizontalGap - verticalGap), 0);
-    const score = minGap * 1000 - gapBalancePenalty;
-
-    if (!best || score > best.score) {
-      best = {
-        score,
-        rows,
-        rowData,
-        verticalGap,
-        usableWidth,
-        usableHeight,
-      };
-    }
-  }
-
-  if (!best) {
-    return {
-      ok: false,
-      reason: 'No valid evenly spaced layout remains in the usable wall area.',
-    };
-  }
-
+  const verticalGap = (usableHeight - totalRowHeight) / (rowGroups.length + 1);
   const placements = new Map();
-  let currentY = wall.innerMargin + best.verticalGap;
+  const rows = [];
+  let currentY = wall.innerMargin + verticalGap;
+  let minGap = verticalGap;
+  const horizontalGaps = [];
 
-  best.rowData.forEach((row, rowIndex) => {
-    let currentX = wall.innerMargin + row.horizontalGap;
-    row.items.forEach((frame) => {
-      const yOffset = (row.rowHeight - frame.height) / 2;
+  rowGroups.forEach((row, rowIndex) => {
+    const rowWidth = rowWidths[rowIndex];
+    const rowHeight = rowHeights[rowIndex];
+    const horizontalGap = (usableWidth - rowWidth) / (row.length + 1);
+    minGap = Math.min(minGap, horizontalGap);
+    horizontalGaps.push(horizontalGap);
+    rows.push({ items: row, rowWidth, rowHeight, horizontalGap });
+
+    let currentX = wall.innerMargin + horizontalGap;
+    row.forEach((frame) => {
+      const yOffset = (rowHeight - frame.height) / 2;
       placements.set(frame.id, {
         x: currentX,
         y: currentY + yOffset,
@@ -271,9 +425,10 @@ function computeLayout(frames, wall) {
         height: frame.height,
         rowIndex,
       });
-      currentX += frame.width + row.horizontalGap;
+      currentX += frame.width + horizontalGap;
     });
-    currentY += row.rowHeight + best.verticalGap;
+
+    currentY += rowHeight + verticalGap;
   });
 
   return {
@@ -281,31 +436,342 @@ function computeLayout(frames, wall) {
     usableWidth,
     usableHeight,
     placements,
-    rows: best.rowData,
-    minGap: best.score / 1000,
-    rowCount: best.rows,
+    rows,
+    minGap,
+    verticalGap,
+    horizontalGaps,
+    rowCount: rowGroups.length,
   };
 }
 
-function applyWallSettings(nextWall, options = {}) {
-  const layout = computeLayout(state.frames, nextWall);
-  if (!layout.ok) {
-    showMessage(layout.reason, 'error');
+function transposeFrame(frame) {
+  return {
+    ...frame,
+    width: frame.height,
+    height: frame.width,
+  };
+}
+
+function transposePlacementResult(result, originalWall, originalFrames) {
+  const byId = new Map(originalFrames.map((frame) => [frame.id, frame]));
+  const placements = new Map();
+  result.placements.forEach((placement, id) => {
+    const original = byId.get(id);
+    if (!original) return;
+    placements.set(id, {
+      x: placement.y,
+      y: placement.x,
+      width: original.width,
+      height: original.height,
+      rowIndex: placement.rowIndex,
+    });
+  });
+
+  return {
+    ok: true,
+    usableWidth: originalWall.width - originalWall.innerMargin * 2,
+    usableHeight: originalWall.height - originalWall.innerMargin * 2,
+    placements,
+    rows: result.rows,
+    minGap: result.minGap,
+    verticalGap: result.verticalGap,
+    horizontalGaps: result.horizontalGaps,
+    rowCount: result.rowCount,
+  };
+}
+
+function getPlacementBounds(placements) {
+  const entries = Array.from(placements.values());
+  if (!entries.length) {
+    return { left: 0, top: 0, right: 0, bottom: 0 };
+  }
+  return entries.reduce(
+    (bounds, placement) => ({
+      left: Math.min(bounds.left, placement.x),
+      top: Math.min(bounds.top, placement.y),
+      right: Math.max(bounds.right, placement.x + placement.width),
+      bottom: Math.max(bounds.bottom, placement.y + placement.height),
+    }),
+    {
+      left: Number.POSITIVE_INFINITY,
+      top: Number.POSITIVE_INFINITY,
+      right: Number.NEGATIVE_INFINITY,
+      bottom: Number.NEGATIVE_INFINITY,
+    }
+  );
+}
+
+function measureMirrorScore(placements, wall, axis = 'vertical') {
+  const items = Array.from(placements.entries()).map(([id, placement]) => ({
+    id,
+    placement,
+    cx: placement.x + placement.width / 2,
+    cy: placement.y + placement.height / 2,
+  }));
+  const centerLine = axis === 'vertical' ? wall.width / 2 : wall.height / 2;
+  const used = new Set();
+  let score = 0;
+
+  items.sort((a, b) => getFrameArea(b.placement) - getFrameArea(a.placement));
+
+  for (const item of items) {
+    if (used.has(item.id)) continue;
+    const primary = axis === 'vertical' ? item.cx : item.cy;
+    const sizeOnAxis = axis === 'vertical' ? item.placement.width : item.placement.height;
+
+    if (Math.abs(primary - centerLine) <= sizeOnAxis * 0.18) {
+      used.add(item.id);
+      score += 1;
+      continue;
+    }
+
+    const mirrored = axis === 'vertical' ? wall.width - item.cx : wall.height - item.cy;
+    let best = null;
+
+    for (const other of items) {
+      if (other.id === item.id || used.has(other.id)) continue;
+      const secondary = axis === 'vertical' ? other.cy : other.cx;
+      const itemSecondary = axis === 'vertical' ? item.cy : item.cx;
+      const mirroredDistance = Math.abs((axis === 'vertical' ? other.cx : other.cy) - mirrored);
+      const secondaryDistance = Math.abs(secondary - itemSecondary);
+      const sizeDistance =
+        Math.abs(other.placement.width - item.placement.width) + Math.abs(other.placement.height - item.placement.height);
+      const cost = mirroredDistance + secondaryDistance * 0.6 + sizeDistance * 0.15;
+      if (!best || cost < best.cost) {
+        best = { other, cost };
+      }
+    }
+
+    if (best) {
+      const tolerance = axis === 'vertical' ? wall.width : wall.height;
+      const normalized = clamp(1 - best.cost / (tolerance * 0.35), 0, 1);
+      if (normalized > 0.15) {
+        used.add(item.id);
+        used.add(best.other.id);
+        score += normalized;
+      }
+    }
+  }
+
+  return items.length ? score / items.length : 1;
+}
+
+function calculateGapVariance(values) {
+  if (!values.length) return 0;
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
+function scoreLayoutCandidate(layout, wall, frames) {
+  const usableWidth = wall.width - wall.innerMargin * 2;
+  const usableHeight = wall.height - wall.innerMargin * 2;
+  const bounds = getPlacementBounds(layout.placements);
+  const groupCenterX = (bounds.left + bounds.right) / 2;
+  const groupCenterY = (bounds.top + bounds.bottom) / 2;
+  const wallCenterX = wall.width / 2;
+  const wallCenterY = wall.height / 2;
+  const centerPenalty = Math.abs(groupCenterX - wallCenterX) + Math.abs(groupCenterY - wallCenterY);
+  const verticalSymmetry = measureMirrorScore(layout.placements, wall, 'vertical');
+  const horizontalSymmetry = measureMirrorScore(layout.placements, wall, 'horizontal');
+  const symmetryScore = Math.max(verticalSymmetry, horizontalSymmetry);
+  const gapVariance = calculateGapVariance([layout.verticalGap, ...layout.horizontalGaps]);
+  const rowCounts = layout.rows.map((row) => row.items.length);
+  const rowBalance = calculateGapVariance(rowCounts);
+  const usedArea = frames.reduce((sum, frame) => sum + getFrameArea(frame), 0);
+  const usableArea = usableWidth * usableHeight;
+  const fillRatio = usableArea > 0 ? usedArea / usableArea : 0;
+
+  return {
+    score:
+      symmetryScore * 1600 +
+      layout.minGap * 3.2 -
+      gapVariance * 14 -
+      centerPenalty * 0.45 -
+      rowBalance * 22 -
+      Math.abs(fillRatio - 0.42) * 60,
+    symmetryScore,
+    verticalSymmetry,
+    horizontalSymmetry,
+    gapVariance,
+  };
+}
+
+function buildCandidate({
+  wall,
+  frames,
+  orderedFrames,
+  counts,
+  rowVariant,
+  groupVariant,
+  transpose = false,
+  label,
+  strategyKey,
+}) {
+  const workingWall = transpose
+    ? { ...wall, width: wall.height, height: wall.width }
+    : wall;
+  const workingFrames = transpose ? orderedFrames.map(transposeFrame) : orderedFrames;
+  const groups = sliceFramesByCounts(workingFrames, counts)
+    .map((group) => arrangeSymmetrically(group, rowVariant))
+    .filter((group) => group.length > 0);
+
+  const arrangedRows = arrangeSymmetrically(
+    groups.map((group, index) => ({ id: index + 1, width: group.reduce((sum, frame) => sum + frame.width, 0), height: group.reduce((sum, frame) => sum + frame.height, 0), group })),
+    groupVariant
+  ).map((entry) => entry.group);
+
+  let result = placeRows(arrangedRows, workingWall);
+  if (!result.ok) return null;
+
+  if (transpose) {
+    result = transposePlacementResult(result, wall, orderedFrames);
+  }
+
+  const metrics = scoreLayoutCandidate(result, wall, frames);
+  return {
+    ...result,
+    name: label,
+    key: `${strategyKey}:${counts.join('-')}:${rowVariant}:${groupVariant}:${transpose ? 't' : 'r'}`,
+    metrics,
+  };
+}
+
+function computeLayoutCandidates(frames, wall) {
+  const usableWidth = wall.width - wall.innerMargin * 2;
+  const usableHeight = wall.height - wall.innerMargin * 2;
+
+  if (usableWidth <= 0 || usableHeight <= 0) {
+    return [
+      {
+        key: 'invalid-margin',
+        name: 'Invalid wall setup',
+        placements: new Map(),
+        rows: [],
+        minGap: 0,
+        rowCount: 0,
+        usableWidth,
+        usableHeight,
+        invalidReason: 'The inner margin is too large for the selected wall dimensions.',
+      },
+    ];
+  }
+
+  for (const frame of frames) {
+    if (frame.width > usableWidth || frame.height > usableHeight) {
+      return [
+        {
+          key: 'frame-too-large',
+          name: 'Frame too large',
+          placements: new Map(),
+          rows: [],
+          minGap: 0,
+          rowCount: 0,
+          usableWidth,
+          usableHeight,
+          invalidReason: `“${frame.name}” is too large to fit inside the usable wall area.`,
+        },
+      ];
+    }
+  }
+
+  if (!frames.length) {
+    return [
+      {
+        key: 'empty-wall',
+        name: 'Balanced gallery',
+        placements: new Map(),
+        rows: [],
+        minGap: Math.min(usableWidth, usableHeight),
+        rowCount: 0,
+        usableWidth,
+        usableHeight,
+        metrics: { score: 0, symmetryScore: 1 },
+      },
+    ];
+  }
+
+  const countPatterns = getRowCountPatterns(frames.length);
+  const orderings = getOrderingVariants(frames);
+  const candidates = [];
+
+  orderings.forEach((ordering, orderingIndex) => {
+    countPatterns.forEach((counts, countIndex) => {
+      const rowVariants = [0, 1];
+      const groupVariants = [0, 1];
+      rowVariants.forEach((rowVariant) => {
+        groupVariants.forEach((groupVariant) => {
+          const rowLabel = `${ordering.name}`;
+          const rowCandidate = buildCandidate({
+            wall,
+            frames,
+            orderedFrames: ordering.frames,
+            counts,
+            rowVariant,
+            groupVariant,
+            transpose: false,
+            label: rowLabel,
+            strategyKey: `${ordering.key}-${orderingIndex}-${countIndex}-rows`,
+          });
+          if (rowCandidate) candidates.push(rowCandidate);
+
+          const columnLabel = ordering.name.includes('gallery') ? ordering.name.replace('gallery', 'column gallery') : `${ordering.name} columns`;
+          const columnCandidate = buildCandidate({
+            wall,
+            frames,
+            orderedFrames: ordering.frames,
+            counts,
+            rowVariant,
+            groupVariant,
+            transpose: true,
+            label: columnLabel,
+            strategyKey: `${ordering.key}-${orderingIndex}-${countIndex}-cols`,
+          });
+          if (columnCandidate) candidates.push(columnCandidate);
+        });
+      });
+    });
+  });
+
+  const unique = [];
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const signature = Array.from(candidate.placements.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([id, placement]) => `${id}:${placement.x.toFixed(1)},${placement.y.toFixed(1)}`)
+      .join('|');
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    unique.push(candidate);
+  }
+
+  unique.sort((a, b) => b.metrics.score - a.metrics.score);
+  return unique.slice(0, 10);
+}
+
+function recalculateLayouts(preserveSelection = true) {
+  const previousKey = preserveSelection ? getActiveLayout()?.key ?? state.selectedLayoutKey : null;
+  state.layoutCandidates = computeLayoutCandidates(state.frames, state.wall);
+  state.selectedLayoutKey = previousKey;
+  updateSelectedLayoutByKey();
+}
+
+function applyWallSettings(nextWall) {
+  state.wall = {
+    ...state.wall,
+    ...nextWall,
+  };
+  recalculateLayouts(true);
+  render();
+  persistState();
+
+  const activeLayout = getActiveLayout();
+  if (activeLayout?.invalidReason) {
+    showMessage(activeLayout.invalidReason, 'error');
     return false;
   }
 
-  state.wall = {
-    ...nextWall,
-    backgroundImage:
-      options.keepExistingImage === false ? null : options.backgroundImage ?? state.wall.backgroundImage,
-    sourceImage:
-      options.keepExistingImage === false ? null : options.sourceImage ?? state.wall.sourceImage,
-    cropSelection:
-      options.keepExistingImage === false ? null : options.cropSelection ?? state.wall.cropSelection,
-  };
-  state.layout = layout;
-  render();
-  showMessage('Wall settings applied.', 'info');
+  showMessage('Wall settings applied. Layouts were regenerated for the updated wall.', 'info');
   return true;
 }
 
@@ -356,7 +822,7 @@ function updatePhotoPreview() {
   els.photoPreviewImage.src = previewImage;
   els.photoPreviewTitle.textContent = state.wall.backgroundImage ? 'Wall photo ready' : 'Wall photo selected';
   els.photoPreviewMeta.textContent = state.wall.backgroundImage
-    ? 'The marked wall area is applied to the preview below.'
+    ? 'The selected wall area is applied to the preview below.'
     : 'A photo is loaded. Adjust the wall area before placing frames.';
 }
 
@@ -388,12 +854,17 @@ function closeCropEditor() {
   updateEditWallAreaButton();
 }
 
-function loadWallImageFile(file, sourceLabel = 'photo') {
+async function loadWallImageFile(file, sourceLabel = 'photo') {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = () => {
-    openCropEditor(String(reader.result), sourceLabel);
+  reader.onload = async () => {
+    try {
+      const resized = await resizeImageDataUrl(String(reader.result));
+      openCropEditor(resized, sourceLabel);
+    } catch (error) {
+      showMessage('The photo could not be loaded. Try a different image.', 'error');
+    }
   };
   reader.readAsDataURL(file);
 }
@@ -423,6 +894,7 @@ function clearWallImage() {
   updateEditWallAreaButton();
   renderWall();
   updatePhotoPreview();
+  persistState();
   showMessage('Wall photo removed.', 'info');
 }
 
@@ -470,7 +942,7 @@ function stopCamera() {
   closeModal(els.cameraModal);
 }
 
-function capturePhoto() {
+async function capturePhoto() {
   const videoWidth = els.cameraVideo.videoWidth;
   const videoHeight = els.cameraVideo.videoHeight;
 
@@ -483,9 +955,15 @@ function capturePhoto() {
   els.cameraCanvas.height = videoHeight;
   const ctx = els.cameraCanvas.getContext('2d');
   ctx.drawImage(els.cameraVideo, 0, 0, videoWidth, videoHeight);
-  const dataUrl = els.cameraCanvas.toDataURL('image/jpeg', 0.92);
+  const dataUrl = els.cameraCanvas.toDataURL('image/jpeg', 0.9);
   stopCamera();
-  openCropEditor(dataUrl, 'camera photo');
+
+  try {
+    const resized = await resizeImageDataUrl(dataUrl);
+    openCropEditor(resized, 'camera photo');
+  } catch (error) {
+    showMessage('The captured photo could not be processed. Try again.', 'error');
+  }
 }
 
 function editWallArea() {
@@ -522,7 +1000,7 @@ function applyPendingCrop() {
   const ctx = els.cameraCanvas.getContext('2d');
   ctx.clearRect(0, 0, sw, sh);
   ctx.drawImage(els.cropImage, sx, sy, sw, sh, 0, 0, sw, sh);
-  const croppedDataUrl = els.cameraCanvas.toDataURL('image/jpeg', 0.92);
+  const croppedDataUrl = els.cameraCanvas.toDataURL('image/jpeg', IMAGE_QUALITY);
 
   state.wall.sourceImage = state.pendingCrop.dataUrl;
   els.wallImageCamera.value = '';
@@ -533,6 +1011,7 @@ function applyPendingCrop() {
   state.pendingCrop = null;
   updateEditWallAreaButton();
   render();
+  persistState();
   showMessage('Selected wall area applied as the background.', 'info');
 }
 
@@ -586,18 +1065,10 @@ function updateCropInteraction(event) {
     let newRight = right;
     let newBottom = bottom;
 
-    if (handle.includes('w')) {
-      newLeft = clamp(left + dx, 0, right - MIN_CROP_SIZE);
-    }
-    if (handle.includes('e')) {
-      newRight = clamp(right + dx, left + MIN_CROP_SIZE, 1);
-    }
-    if (handle.includes('n')) {
-      newTop = clamp(top + dy, 0, bottom - MIN_CROP_SIZE);
-    }
-    if (handle.includes('s')) {
-      newBottom = clamp(bottom + dy, top + MIN_CROP_SIZE, 1);
-    }
+    if (handle.includes('w')) newLeft = clamp(left + dx, 0, right - MIN_CROP_SIZE);
+    if (handle.includes('e')) newRight = clamp(right + dx, left + MIN_CROP_SIZE, 1);
+    if (handle.includes('n')) newTop = clamp(top + dy, 0, bottom - MIN_CROP_SIZE);
+    if (handle.includes('s')) newBottom = clamp(bottom + dy, top + MIN_CROP_SIZE, 1);
 
     selection.x = newLeft;
     selection.y = newTop;
@@ -641,50 +1112,75 @@ function addFrame(event) {
     height,
   };
 
-  const nextFrames = [...state.frames, frame];
-  const nextLayout = computeLayout(nextFrames, state.wall);
-
-  if (!nextLayout.ok) {
-    showMessage(`Cannot add that picture frame. ${nextLayout.reason}`, 'error');
+  const usableWidth = state.wall.width - state.wall.innerMargin * 2;
+  const usableHeight = state.wall.height - state.wall.innerMargin * 2;
+  if (frame.width > usableWidth || frame.height > usableHeight) {
+    showMessage(`Cannot add that picture frame. “${frame.name}” is too large for the usable wall area.`, 'error');
     return;
   }
 
-  state.frames = nextFrames;
-  state.layout = nextLayout;
+  state.frames = [...state.frames, frame];
   state.nextId += 1;
+  recalculateLayouts(false);
   els.frameForm.reset();
   els.frameWidth.value = '300';
   els.frameHeight.value = '400';
   render();
-  showMessage(`Added “${frame.name}”. The layout was redistributed evenly.`, 'info');
+  persistState();
+
+  const activeLayout = getActiveLayout();
+  if (activeLayout?.invalidReason) {
+    showMessage(activeLayout.invalidReason, 'error');
+    return;
+  }
+
+  showMessage(`Added “${frame.name}”. ${state.layoutCandidates.length} layout options are ready to preview.`, 'info');
 }
 
 function removeFrame(frameId) {
   state.frames = state.frames.filter((frame) => frame.id !== frameId);
-  state.layout = computeLayout(state.frames, state.wall);
+  recalculateLayouts(true);
   render();
-  showMessage('Picture frame removed and layout updated.', 'info');
+  persistState();
+  showMessage('Picture frame removed and layouts updated.', 'info');
 }
 
 function clearFrames() {
   state.frames = [];
-  state.layout = computeLayout(state.frames, state.wall);
+  recalculateLayouts(false);
   render();
+  persistState();
   showMessage('All frames removed.', 'info');
+}
+
+function cycleLayout(direction) {
+  if (state.layoutCandidates.length <= 1) return;
+  state.selectedLayoutIndex = (state.selectedLayoutIndex + direction + state.layoutCandidates.length) % state.layoutCandidates.length;
+  state.selectedLayoutKey = getActiveLayout()?.key ?? null;
+  render();
+  persistState();
+  showMessage(`Showing layout ${state.selectedLayoutIndex + 1} of ${state.layoutCandidates.length}.`, 'info');
 }
 
 function renderSummary() {
   const usableWidth = state.wall.width - state.wall.innerMargin * 2;
   const usableHeight = state.wall.height - state.wall.innerMargin * 2;
   const usableArea = Math.max(usableWidth, 0) * Math.max(usableHeight, 0);
-  const usedArea = state.frames.reduce((sum, frame) => sum + frame.width * frame.height, 0);
+  const usedArea = state.frames.reduce((sum, frame) => sum + getFrameArea(frame), 0);
   const fillPct = usableArea > 0 ? Math.min((usedArea / usableArea) * 100, 100).toFixed(1) : '0.0';
+  const activeLayout = getActiveLayout();
 
-  const layoutLine = state.layout && state.layout.ok
-    ? `${state.layout.rowCount || 0} row${state.layout.rowCount === 1 ? '' : 's'} in use`
-    : 'No valid layout';
+  const layoutLine = activeLayout?.invalidReason
+    ? activeLayout.invalidReason
+    : activeLayout
+      ? `${activeLayout.name}, ${state.selectedLayoutIndex + 1}/${state.layoutCandidates.length}`
+      : 'No layout';
 
-  const photoLine = state.wall.backgroundImage ? 'Wall photo aligned' : state.wall.sourceImage ? 'Photo selected, wall area not applied yet' : 'No wall photo';
+  const photoLine = state.wall.backgroundImage
+    ? 'Wall photo aligned and saved locally'
+    : state.wall.sourceImage
+      ? 'Photo selected, wall area not applied yet'
+      : 'No wall photo';
 
   els.wallSummary.innerHTML = `
     <div><strong>Wall:</strong> ${areaLabel(state.wall.width, state.wall.height, state.wall.unit)}</div>
@@ -692,7 +1188,7 @@ function renderSummary() {
     <div><strong>Usable area:</strong> ${areaLabel(usableWidth, usableHeight, state.wall.unit)}</div>
     <div><strong>Frames:</strong> ${state.frames.length}</div>
     <div><strong>Filled area:</strong> ${fillPct}%</div>
-    <div><strong>Layout:</strong> ${layoutLine}</div>
+    <div><strong>Active layout:</strong> ${escapeHtml(layoutLine)}</div>
     <div><strong>Photo:</strong> ${photoLine}</div>
   `;
 }
@@ -727,10 +1223,29 @@ function renderFrameList() {
   });
 }
 
+function renderLayoutToolbar() {
+  const activeLayout = getActiveLayout();
+  if (!activeLayout) {
+    els.layoutName.textContent = 'No layout';
+    els.layoutMeta.textContent = '0 layouts';
+  } else if (activeLayout.invalidReason) {
+    els.layoutName.textContent = activeLayout.name;
+    els.layoutMeta.textContent = activeLayout.invalidReason;
+  } else {
+    els.layoutName.textContent = activeLayout.name;
+    const axisLabel = activeLayout.metrics.verticalSymmetry >= activeLayout.metrics.horizontalSymmetry ? 'vertical symmetry' : 'horizontal symmetry';
+    els.layoutMeta.textContent = `${state.selectedLayoutIndex + 1} of ${state.layoutCandidates.length} layouts • prefers ${axisLabel}`;
+  }
+
+  const disableSwitching = state.layoutCandidates.length <= 1;
+  els.prevLayout.disabled = disableSwitching;
+  els.nextLayout.disabled = disableSwitching;
+}
+
 function fitWallToViewport() {
   const maxWidth = Math.max(els.wallViewport.clientWidth - 8, 240);
   const isDesktop = window.innerWidth >= 960;
-  const maxHeight = Math.max(window.innerHeight * (isDesktop ? 0.58 : 0.36), isDesktop ? 320 : 220);
+  const maxHeight = Math.max(window.innerHeight * (isDesktop ? 0.58 : 0.34), isDesktop ? 320 : 220);
   const scale = Math.min(maxWidth / state.wall.width, maxHeight / state.wall.height);
   return {
     scale,
@@ -762,18 +1277,24 @@ function renderWall() {
 
   els.frameLayer.innerHTML = '';
 
-  if (!state.layout || !state.layout.ok) return;
+  const activeLayout = getActiveLayout();
+  if (!activeLayout || activeLayout.invalidReason) return;
 
   state.frames.forEach((frame) => {
-    const placement = state.layout.placements.get(frame.id);
+    const placement = activeLayout.placements.get(frame.id);
     if (!placement) return;
 
     const frameEl = document.createElement('div');
     frameEl.className = 'wall-frame';
+    const frameWidthPx = placement.width * scale;
+    const frameHeightPx = placement.height * scale;
+    if (frameWidthPx < 72 || frameHeightPx < 72) {
+      frameEl.classList.add('frame-compact');
+    }
     frameEl.style.left = `${placement.x * scale}px`;
     frameEl.style.top = `${placement.y * scale}px`;
-    frameEl.style.width = `${placement.width * scale}px`;
-    frameEl.style.height = `${placement.height * scale}px`;
+    frameEl.style.width = `${frameWidthPx}px`;
+    frameEl.style.height = `${frameHeightPx}px`;
 
     const label = document.createElement('span');
     label.textContent = frame.name;
@@ -787,6 +1308,7 @@ function render() {
   updatePhotoPreview();
   renderSummary();
   renderFrameList();
+  renderLayoutToolbar();
   renderWall();
   if (state.pendingCrop) {
     renderCropSelection();
@@ -794,23 +1316,10 @@ function render() {
   showMessage(state.lastMessage.text, state.lastMessage.type);
 }
 
-function escapeHtml(value) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
 function handleModalScrimClick(event) {
   const closeType = event.target instanceof HTMLElement ? event.target.dataset.closeModal : null;
-  if (closeType === 'camera') {
-    stopCamera();
-  }
-  if (closeType === 'crop') {
-    closeCropEditor();
-  }
+  if (closeType === 'camera') stopCamera();
+  if (closeType === 'crop') closeCropEditor();
 }
 
 function handleEscape(event) {
@@ -830,8 +1339,16 @@ function updateCropStageRatio() {
   renderCropSelection();
 }
 
+function syncFormValuesFromState() {
+  els.wallWidth.value = formatNumber(state.wall.width);
+  els.wallHeight.value = formatNumber(state.wall.height);
+  els.innerMargin.value = formatNumber(state.wall.innerMargin);
+}
+
 function init() {
-  state.layout = computeLayout(state.frames, state.wall);
+  restoreState();
+  syncFormValuesFromState();
+  recalculateLayouts(true);
   render();
 
   els.wallForm.addEventListener('submit', handleWallFormSubmit);
@@ -856,6 +1373,8 @@ function init() {
   els.cropStage.addEventListener('pointercancel', endCropInteraction);
   els.frameForm.addEventListener('submit', addFrame);
   els.clearFrames.addEventListener('click', clearFrames);
+  els.prevLayout.addEventListener('click', () => cycleLayout(-1));
+  els.nextLayout.addEventListener('click', () => cycleLayout(1));
   els.cropImage.addEventListener('load', updateCropStageRatio);
   els.cameraModal.addEventListener('click', handleModalScrimClick);
   els.cropModal.addEventListener('click', handleModalScrimClick);

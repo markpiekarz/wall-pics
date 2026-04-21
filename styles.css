@@ -8,9 +8,10 @@
   --accent-soft: #e7f0f6;
   --danger-soft: #fbe6e6;
   --danger: #8a2d2d;
-  --shadow: 0 12px 28px rgba(24, 24, 24, 0.08);
-  --outer-scene-gap: 16px;
+  --shadow: 0 10px 28px rgba(24, 24, 24, 0.08);
+  --outer-scene-gap: 12px;
   --tap-min-height: 52px;
+  --page-max: 1100px;
 }
 
 * {
@@ -24,7 +25,9 @@ html {
 
 body {
   margin: 0;
+  min-height: 100svh;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 16px;
   color: var(--text);
   background: radial-gradient(circle at top left, rgba(42, 92, 125, 0.08), transparent 28%),
     radial-gradient(circle at bottom right, rgba(138, 45, 45, 0.05), transparent 22%), var(--bg);
@@ -33,6 +36,12 @@ body {
 
 body.modal-open {
   overflow: hidden;
+}
+
+img,
+video,
+canvas {
+  max-width: 100%;
 }
 
 button,
@@ -58,6 +67,8 @@ button {
   text-align: center;
   width: 100%;
   max-width: 100%;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 button:hover {
@@ -82,14 +93,20 @@ button:disabled {
 }
 
 .topbar,
-.footer {
-  width: min(100%, 1100px);
+.footer,
+.app-shell {
+  width: 100%;
+  max-width: var(--page-max);
   margin: 0 auto;
-  padding: 14px 14px 0;
+  padding-inline: 12px;
+}
+
+.topbar {
+  padding-top: calc(12px + env(safe-area-inset-top, 0px));
 }
 
 .footer {
-  padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   color: var(--muted);
 }
 
@@ -112,12 +129,12 @@ p {
 
 h1 {
   margin-bottom: 0.4rem;
-  font-size: clamp(1.55rem, 6vw, 2.35rem);
+  font-size: clamp(1.5rem, 6vw, 2.3rem);
   line-height: 1.05;
 }
 
 h2 {
-  font-size: 1.1rem;
+  font-size: 1.08rem;
   margin-bottom: 0.35rem;
 }
 
@@ -131,41 +148,44 @@ h3 {
 .modal-copy,
 small.hint,
 label span,
-.frame-meta span {
+.frame-meta span,
+.layout-copy small {
   color: var(--muted);
-  line-height: 1.45;
+  line-height: 1.42;
 }
 
 .subtitle {
-  max-width: 64ch;
+  max-width: 62ch;
   font-size: 0.96rem;
 }
 
 .app-shell {
-  width: min(100%, 1100px);
-  margin: 0 auto;
-  padding: 14px 14px 24px;
+  padding-top: 12px;
+  padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
+  gap: 12px;
   align-items: start;
 }
 
 .panel {
+  width: 100%;
+  max-width: 100%;
   background: var(--panel);
   border: 1px solid var(--panel-border);
-  border-radius: 20px;
+  border-radius: 18px;
   box-shadow: var(--shadow);
-  padding: 14px;
+  padding: 12px;
+  overflow: hidden;
 }
 
 .section-heading,
 .section-heading.compact {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .section-heading.compact {
-  margin-top: 18px;
+  margin-top: 0;
 }
 
 .stack-form,
@@ -175,9 +195,11 @@ label span,
 .frame-list,
 .frame-item,
 .photo-source-card,
-.stats-card {
+.stats-card,
+.layout-toolbar,
+.layout-toolbar-buttons {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .two-up {
@@ -186,7 +208,7 @@ label span,
 
 label {
   display: grid;
-  gap: 7px;
+  gap: 6px;
 }
 
 input,
@@ -219,15 +241,16 @@ select:focus {
 .status-banner,
 .frame-item,
 .wall-viewport,
-.modal-card {
-  border-radius: 18px;
+.modal-card,
+.layout-toolbar {
+  border-radius: 16px;
   border: 1px solid var(--panel-border);
   background: white;
 }
 
 .photo-source-card {
   background: linear-gradient(180deg, #ffffff, #fbf8f2);
-  padding: 14px;
+  padding: 12px;
 }
 
 .photo-source-copy {
@@ -236,8 +259,13 @@ select:focus {
 }
 
 .photo-source-copy > span,
-#photo-preview-title {
+#photo-preview-title,
+.layout-copy strong {
   font-weight: 700;
+}
+
+.photo-action-button {
+  font-size: 1rem;
 }
 
 .primary-photo-button {
@@ -245,25 +273,27 @@ select:focus {
 }
 
 .photo-preview-card {
-  grid-template-columns: 88px 1fr;
+  display: grid;
+  grid-template-columns: 72px 1fr;
   align-items: center;
+  gap: 10px;
   padding: 10px;
   border: 1px solid var(--panel-border);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.8);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.84);
 }
 
 .photo-preview-card img {
-  width: 88px;
-  height: 88px;
+  width: 72px;
+  height: 72px;
   object-fit: cover;
-  border-radius: 12px;
+  border-radius: 10px;
   border: 1px solid rgba(29, 29, 29, 0.08);
 }
 
 #photo-preview-meta {
   margin: 0.2rem 0 0;
-  font-size: 0.92rem;
+  font-size: 0.9rem;
   color: var(--muted);
 }
 
@@ -283,18 +313,31 @@ select:focus {
 }
 
 .stats-card {
-  padding: 14px 16px;
+  padding: 12px 14px;
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.48;
 }
 
 .stats-card strong {
   color: var(--text);
 }
 
+.layout-toolbar {
+  padding: 10px;
+}
+
+.layout-copy {
+  display: grid;
+  gap: 2px;
+}
+
+.layout-toolbar-buttons {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .status-banner {
-  min-height: 54px;
-  padding: 12px 14px;
+  min-height: 52px;
+  padding: 11px 12px;
   display: flex;
   align-items: center;
   line-height: 1.4;
@@ -309,9 +352,9 @@ select:focus {
 
 .empty-state {
   color: var(--muted);
-  padding: 16px;
+  padding: 14px;
   border: 1px dashed var(--panel-border);
-  border-radius: 16px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.55);
 }
 
@@ -325,7 +368,7 @@ select:focus {
 }
 
 .wall-viewport {
-  min-height: 280px;
+  min-height: 210px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -342,16 +385,17 @@ select:focus {
 
 .wall-canvas {
   position: relative;
-  width: min(100%, 720px);
+  width: 100%;
   max-width: 100%;
-  border-radius: 16px;
+  margin-inline: auto;
+  border-radius: 14px;
   overflow: hidden;
   border: 2px solid rgba(84, 67, 48, 0.24);
   background: linear-gradient(rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.28)),
     linear-gradient(180deg, #d8d1c9, #c4b8ab);
   background-size: cover;
   background-position: center;
-  box-shadow: inset 0 0 0 6px rgba(255, 255, 255, 0.18), 0 22px 46px rgba(31, 26, 20, 0.16);
+  box-shadow: inset 0 0 0 5px rgba(255, 255, 255, 0.18), 0 18px 32px rgba(31, 26, 20, 0.14);
 }
 
 .usable-area {
@@ -369,8 +413,8 @@ select:focus {
 .wall-frame {
   position: absolute;
   background: linear-gradient(145deg, rgba(68, 46, 21, 0.96), rgba(124, 86, 48, 0.94));
-  border: 4px solid rgba(91, 64, 35, 0.9);
-  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.18), inset 0 0 0 2px rgba(255, 243, 223, 0.24);
+  border: 3px solid rgba(91, 64, 35, 0.9);
+  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.16), inset 0 0 0 2px rgba(255, 243, 223, 0.24);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -388,12 +432,16 @@ select:focus {
 .wall-frame span {
   position: relative;
   z-index: 1;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   text-align: center;
-  padding: 0 8px;
+  padding: 0 6px;
   color: #453628;
   font-weight: 700;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+.wall-frame.frame-compact span {
+  display: none;
 }
 
 .modal {
@@ -401,24 +449,41 @@ select:focus {
   inset: 0;
   z-index: 40;
   display: grid;
-  place-items: end center;
-  padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  place-items: stretch;
+  padding: 0;
 }
 
 .modal-scrim {
   position: absolute;
   inset: 0;
-  background: rgba(15, 15, 15, 0.6);
+  background: rgba(15, 15, 15, 0.66);
 }
 
 .modal-card {
   position: relative;
   z-index: 1;
-  width: min(100%, 760px);
-  max-height: calc(100svh - 24px - env(safe-area-inset-bottom, 0px));
+  width: 100%;
+  height: 100svh;
+  max-height: 100svh;
   overflow: auto;
-  padding: 14px;
+  padding: 12px;
   background: #fcfbf8;
+  border: none;
+  border-radius: 0;
+}
+
+.camera-panel,
+.crop-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.camera-panel {
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+}
+
+.crop-panel {
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
 }
 
 .modal-header {
@@ -426,7 +491,6 @@ select:focus {
   align-items: start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
 }
 
 .camera-preview-wrap,
@@ -438,7 +502,7 @@ select:focus {
 }
 
 .camera-preview-wrap {
-  aspect-ratio: 4 / 3;
+  min-height: 220px;
 }
 
 #camera-video,
@@ -457,7 +521,7 @@ select:focus {
   touch-action: none;
   user-select: none;
   aspect-ratio: var(--crop-ratio, 4 / 3);
-  max-height: min(64svh, 640px);
+  max-height: min(58svh, 520px);
 }
 
 #crop-image {
@@ -528,8 +592,8 @@ select:focus {
 
 .crop-handle {
   position: absolute;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   border-radius: 999px;
   border: 2px solid #1d1d1d;
   background: white;
@@ -543,26 +607,26 @@ select:focus {
 }
 
 .handle-nw {
-  left: -16px;
-  top: -16px;
+  left: -17px;
+  top: -17px;
   cursor: nwse-resize;
 }
 
 .handle-ne {
-  right: -16px;
-  top: -16px;
+  right: -17px;
+  top: -17px;
   cursor: nesw-resize;
 }
 
 .handle-sw {
-  left: -16px;
-  bottom: -16px;
+  left: -17px;
+  bottom: -17px;
   cursor: nesw-resize;
 }
 
 .handle-se {
-  right: -16px;
-  bottom: -16px;
+  right: -17px;
+  bottom: -17px;
   cursor: nwse-resize;
 }
 
@@ -570,6 +634,7 @@ select:focus {
   position: sticky;
   bottom: 0;
   padding-top: 6px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   background: linear-gradient(180deg, rgba(252, 251, 248, 0), rgba(252, 251, 248, 0.92) 20%, rgba(252, 251, 248, 1));
 }
 
@@ -582,14 +647,23 @@ select:focus {
   .topbar,
   .footer,
   .app-shell {
-    padding-inline: 20px;
+    padding-inline: 18px;
+  }
+
+  .app-shell {
+    gap: 14px;
+  }
+
+  .panel {
+    padding: 14px;
   }
 
   .two-up {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .button-row {
+  .button-row,
+  .layout-toolbar-buttons {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -604,6 +678,25 @@ select:focus {
   .frame-item {
     grid-template-columns: 1fr auto;
     align-items: center;
+  }
+
+  .modal {
+    place-items: center;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .modal-card {
+    width: min(100%, 760px);
+    height: auto;
+    max-height: calc(100svh - 24px - env(safe-area-inset-bottom, 0px));
+    padding: 14px;
+    border: 1px solid var(--panel-border);
+    border-radius: 18px;
+  }
+
+  .camera-preview-wrap {
+    aspect-ratio: 4 / 3;
+    min-height: 0;
   }
 }
 
@@ -631,7 +724,11 @@ select:focus {
   }
 
   .wall-viewport {
-    min-height: 520px;
-    padding: 24px;
+    min-height: 460px;
+    padding: 20px;
+  }
+
+  .wall-frame {
+    border-width: 4px;
   }
 }

@@ -3,30 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#f4efe6" />
     <title>Wall Picture Planner</title>
     <meta
       name="description"
-      content="Plan picture frames on a wall with real dimensions, inner margins, and a wall-photo background."
+      content="Plan picture frames on a wall with real dimensions, switch between balanced gallery layouts, and use a wall-photo background."
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <header class="topbar">
-      <div>
-        <p class="eyebrow">Open source wall layout planner</p>
-        <h1>Wall Picture Planner</h1>
-        <p class="subtitle">
-          Mobile first. Enter the wall size in mm, take a photo or choose one from your phone gallery,
-          mark the real wall area, then place picture frames inside the usable space.
-        </p>
-      </div>
+      <p class="eyebrow">Open source wall layout planner</p>
+      <h1>Wall Picture Planner</h1>
+      <p class="subtitle">
+        Built for phones. Enter the wall size in mm, take or choose a wall photo, mark the wall area,
+        then add frames and flip through balanced gallery layouts instantly.
+      </p>
     </header>
 
     <main class="app-shell">
       <section class="panel controls-panel">
         <div class="section-heading">
           <h2>1. Wall setup</h2>
-          <p>These values define the real wall coordinate system used for placement.</p>
+          <p>These measurements define the real wall. They are saved locally on this device and browser.</p>
         </div>
 
         <form id="wall-form" class="stack-form">
@@ -55,7 +54,7 @@
           <div class="photo-source-card">
             <div class="photo-source-copy">
               <span>Wall photo</span>
-              <small class="hint">Best on phones: either take a wall photo now or choose one from your gallery.</small>
+              <small class="hint">Use either option below. Both are designed for phone browsers.</small>
             </div>
 
             <input id="wall-image-camera" class="hidden" type="file" accept="image/*" capture="environment" />
@@ -93,9 +92,20 @@
       </section>
 
       <section class="panel preview-panel">
-        <div class="section-heading">
+        <div class="section-heading compact">
           <h2>2. Wall preview</h2>
-          <p>The dashed rectangle shows the inner margin boundary that picture edges may not cross.</p>
+          <p>The dashed rectangle is the inner keep-clear boundary for frame edges.</p>
+        </div>
+
+        <div class="layout-toolbar">
+          <div class="layout-copy">
+            <strong id="layout-name">Balanced gallery</strong>
+            <small id="layout-meta">1 of 1 layouts</small>
+          </div>
+          <div class="layout-toolbar-buttons">
+            <button id="prev-layout" type="button" class="button-secondary">Previous layout</button>
+            <button id="next-layout" type="button">Next layout</button>
+          </div>
         </div>
 
         <div id="wall-viewport" class="wall-viewport">
@@ -107,9 +117,12 @@
       </section>
 
       <section class="panel controls-panel frames-panel">
-        <div class="section-heading">
+        <div class="section-heading compact">
           <h2>3. Add picture frames</h2>
-          <p>Frames are rearranged automatically to stay evenly distributed in the usable wall area.</p>
+          <p>
+            Frames are redistributed across the usable wall area. The layout engine prefers even spacing and
+            symmetry, then lets you flip through alternative arrangements.
+          </p>
         </div>
 
         <form id="frame-form" class="stack-form">
@@ -149,7 +162,7 @@
     </main>
 
     <footer class="footer">
-      <p>Static browser app suitable for GitHub Pages. All image handling stays local to the browser.</p>
+      <p>Static browser app for GitHub Pages. Settings, frames, and the wall photo are saved locally on this device.</p>
     </footer>
 
     <div id="camera-modal" class="modal hidden" aria-hidden="true">
@@ -168,9 +181,7 @@
         <div class="button-row sticky-modal-actions">
           <button id="capture-photo" type="button">Capture wall photo</button>
         </div>
-        <small class="hint">
-          Camera access requires browser permission. GitHub Pages runs over HTTPS, which allows camera use.
-        </small>
+        <small class="hint">Allow camera permission in the browser if prompted.</small>
       </div>
     </div>
 
@@ -180,7 +191,7 @@
         <div class="modal-header">
           <div>
             <p class="modal-eyebrow">Wall area</p>
-            <h3>Choose the wall area in the photo</h3>
+            <h3>Choose the measured wall in the photo</h3>
           </div>
           <button id="cancel-crop" type="button" class="icon-button button-secondary" aria-label="Close crop editor">Close</button>
         </div>
@@ -204,7 +215,7 @@
           <button id="apply-crop" type="button">Use selected wall area</button>
           <button id="reset-crop" type="button" class="button-secondary">Reset selection</button>
         </div>
-        <small class="hint">Best results come from selecting only the true wall plane inside the photo.</small>
+        <small class="hint">Portrait orientation is supported. Landscape is optional, not required.</small>
       </div>
     </div>
 

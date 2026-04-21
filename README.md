@@ -1,75 +1,31 @@
 # Wall Picture Planner
 
-Wall Picture Planner is a static browser app for planning framed pictures on a wall using real dimensions in millimetres (mm). The current build is mobile-first and designed to work in portrait orientation on phones.
+Mobile-first static web app for planning picture frames on a wall using real wall dimensions in millimetres.
 
-## What it does
+## Features
 
-- asks for wall width, wall height, and an inner keep-clear margin in millimetres (mm)
-- accepts a photo of an existing blank wall and uses it as the wall background
-- offers two primary phone-friendly photo paths: take a photo now or choose one from the gallery
-- keeps the live browser camera as an advanced fallback tool
-- adds an interactive shaded wall-area overlay so the user can define which rectangle in the photo corresponds to the supplied wall dimensions
-- draws the wall with an outer scene margin and a visible inner margin boundary
-- lets the user add picture frames by entering their dimensions
-- automatically redistributes all frames evenly within the usable wall area every time a frame is added or removed
-- prevents additional frames from being added when no valid layout remains
+- wall size setup in **mm only**
+- visible inner keep-clear margin boundary
+- take a wall photo directly from the phone camera or choose one from the gallery
+- drag a bright crop overlay to mark which part of the photo matches the measured wall
+- add multiple picture frames by width and height
+- automatic layout engine that generates multiple balanced gallery-wall arrangements
+- instant **Previous layout / Next layout** switching so the user can compare alternatives quickly
+- local persistence of wall sizes, frame sizes, frame names, and saved wall photo data using browser storage
 
-## Photo alignment workflow
+## Layout behaviour
 
-1. Upload or capture the blank wall photo.
-2. A shaded overlay editor opens automatically.
-3. Drag the bright selection rectangle or its corner handles so it covers only the real wall area.
-4. Apply the selected wall area.
-5. The cropped selection becomes the wall background used by the planner.
+The app no longer relies on the order that frames were added. It generates several alternative layouts that aim for:
 
-This is the best approach for this app because it stays simple on phones, keeps the main page compact by using a modal editor, makes the wall bounds obvious, and avoids forcing the user to type photo offsets manually.
+- even distribution inside the usable wall area
+- centred compositions
+- symmetry when possible, usually on at least one axis
+- balanced spacing between rows and columns
 
-## Camera notes
+## Hosting
 
-- the file input uses `capture="environment"` so phones can open the rear camera directly when supported
-- the **Open live camera** button uses the browser camera API for live preview and capture
-- camera use requires browser permission and a secure origin such as GitHub Pages over HTTPS
-- all captured or uploaded images stay local in the browser
+This project is static HTML, CSS, and JavaScript and is suitable for GitHub Pages.
 
-## How layout works
+## Persistence
 
-The app treats all dimensions as millimetres (mm) and uses them as the real coordinate system.
-
-1. The usable area is the wall size minus the inner margin on all four sides.
-2. Frames are sorted largest-first for more stable packing.
-3. The layout engine searches for a row-based partition that:
-   - keeps every frame inside the usable area
-   - keeps frames from overlapping
-   - distributes leftover space as evenly as possible between rows and between frames in each row
-4. When a valid layout no longer exists, the next frame is rejected.
-
-## Local use
-
-Because the app is fully static, you can open `index.html` directly in a browser.
-
-## Publish on GitHub Pages
-
-1. Create a new public GitHub repository.
-2. Upload the contents of this folder to the repository root.
-3. Commit to the default branch.
-4. In the repository settings, open **Pages**.
-5. Set the source to deploy from the default branch and the repository root.
-6. Save. GitHub will publish the app as a static site.
-
-## Suggested repository settings
-
-- public repository
-- MIT license
-- GitHub Pages enabled
-- repository description: `Plan picture-frame layouts on a wall using real dimensions and a photo background.`
-
-## Files
-
-- `index.html` — application structure
-- `styles.css` — layout and visual styling
-- `app.js` — wall model, placement engine, camera capture, and wall-area overlay logic
-- `LICENSE` — MIT license
-
-## License
-
-MIT
+The app stores its data locally in the browser for the same site origin. This is useful for testing, because after a refresh or redeploy the saved wall setup and frames remain available unless browser storage is cleared.
