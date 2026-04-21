@@ -1305,9 +1305,10 @@ function renderWall() {
     els.wallCanvas.style.backgroundRepeat = '';
   }
 
-  const rect = els.wallCanvas.getBoundingClientRect();
-  const scaleX = rect.width / state.wall.width;
-  const scaleY = rect.height / state.wall.height;
+  const innerRenderWidth = els.wallCanvas.clientWidth;
+  const innerRenderHeight = els.wallCanvas.clientHeight;
+  const scaleX = innerRenderWidth / state.wall.width;
+  const scaleY = innerRenderHeight / state.wall.height;
 
   const innerLeft = state.wall.innerMargin * scaleX;
   const innerTop = state.wall.innerMargin * scaleY;
