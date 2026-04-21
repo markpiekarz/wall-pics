@@ -99,10 +99,43 @@ function cloneSelection(selection) {
 
 function getDefaultCropSelection() {
   return {
-    x: 0.08,
-    y: 0.08,
-    w: 0.84,
-    h: 0.84,
+    x: 0.03,
+    y: 0.03,
+    w: 0.94,
+    h: 0.94,
+  };
+}
+
+function getSuggestedCropSelection(imageWidth, imageHeight) {
+  const wallAspect = state.wall.width > 0 && state.wall.height > 0 ? state.wall.width / state.wall.height : 1;
+  const imageAspect = imageWidth > 0 && imageHeight > 0 ? imageWidth / imageHeight : wallAspect;
+  const inset = 0.02;
+  const usableWidth = 1 - inset * 2;
+  const usableHeight = 1 - inset * 2;
+
+  if (!Number.isFinite(wallAspect) || wallAspect <= 0 || !Number.isFinite(imageAspect) || imageAspect <= 0) {
+    return getDefaultCropSelection();
+  }
+
+  let w;
+  let h;
+
+  if (imageAspect >= wallAspect) {
+    h = usableHeight;
+    w = h * wallAspect / imageAspect;
+  } else {
+    w = usableWidth;
+    h = w / wallAspect * imageAspect;
+  }
+
+  w = clamp(w, MIN_CROP_SIZE, 1);
+  h = clamp(h, MIN_CROP_SIZE, 1);
+
+  return {
+    x: clamp((1 - w) / 2, 0, 1 - w),
+    y: clamp((1 - h) / 2, 0, 1 - h),
+    w,
+    h,
   };
 }
 
@@ -840,6 +873,7 @@ function openCropEditor(dataUrl, sourceLabel = 'photo', selection = null) {
     dataUrl,
     sourceLabel,
     selection: cloneSelection(selection ?? getDefaultCropSelection()),
+    autoSuggested: !selection,
   };
   els.cropImage.src = dataUrl;
   showCropPanel();
@@ -1255,20 +1289,30 @@ function fitWallToViewport() {
 }
 
 function renderWall() {
-  const { width, height, scale } = fitWallToViewport();
+  const { width, height } = fitWallToViewport();
   els.wallCanvas.style.width = `${width}px`;
   els.wallCanvas.style.height = `${height}px`;
 
   if (state.wall.backgroundImage) {
     els.wallCanvas.style.backgroundImage = `linear-gradient(rgba(255,255,255,0.18), rgba(255,255,255,0.18)), url(${state.wall.backgroundImage})`;
+    els.wallCanvas.style.backgroundSize = '100% 100%, 100% 100%';
+    els.wallCanvas.style.backgroundPosition = 'center center, center center';
+    els.wallCanvas.style.backgroundRepeat = 'no-repeat, no-repeat';
   } else {
     els.wallCanvas.style.backgroundImage = 'linear-gradient(rgba(255,255,255,0.28), rgba(255,255,255,0.28)), linear-gradient(180deg, #d8d1c9, #c4b8ab)';
+    els.wallCanvas.style.backgroundSize = '';
+    els.wallCanvas.style.backgroundPosition = '';
+    els.wallCanvas.style.backgroundRepeat = '';
   }
 
-  const innerLeft = state.wall.innerMargin * scale;
-  const innerTop = state.wall.innerMargin * scale;
-  const innerWidth = (state.wall.width - state.wall.innerMargin * 2) * scale;
-  const innerHeight = (state.wall.height - state.wall.innerMargin * 2) * scale;
+  const rect = els.wallCanvas.getBoundingClientRect();
+  const scaleX = rect.width / state.wall.width;
+  const scaleY = rect.height / state.wall.height;
+
+  const innerLeft = state.wall.innerMargin * scaleX;
+  const innerTop = state.wall.innerMargin * scaleY;
+  const innerWidth = (state.wall.width - state.wall.innerMargin * 2) * scaleX;
+  const innerHeight = (state.wall.height - state.wall.innerMargin * 2) * scaleY;
 
   els.usableArea.style.left = `${innerLeft}px`;
   els.usableArea.style.top = `${innerTop}px`;
@@ -1286,13 +1330,13 @@ function renderWall() {
 
     const frameEl = document.createElement('div');
     frameEl.className = 'wall-frame';
-    const frameWidthPx = placement.width * scale;
-    const frameHeightPx = placement.height * scale;
+    const frameWidthPx = placement.width * scaleX;
+    const frameHeightPx = placement.height * scaleY;
     if (frameWidthPx < 72 || frameHeightPx < 72) {
       frameEl.classList.add('frame-compact');
     }
-    frameEl.style.left = `${placement.x * scale}px`;
-    frameEl.style.top = `${placement.y * scale}px`;
+    frameEl.style.left = `${placement.x * scaleX}px`;
+    frameEl.style.top = `${placement.y * scaleY}px`;
     frameEl.style.width = `${frameWidthPx}px`;
     frameEl.style.height = `${frameHeightPx}px`;
 
@@ -1336,6 +1380,10 @@ function handleEscape(event) {
 function updateCropStageRatio() {
   if (!els.cropImage.naturalWidth || !els.cropImage.naturalHeight) return;
   els.cropStage.style.setProperty('--crop-ratio', `${els.cropImage.naturalWidth} / ${els.cropImage.naturalHeight}`);
+  if (state.pendingCrop?.autoSuggested) {
+    state.pendingCrop.selection = getSuggestedCropSelection(els.cropImage.naturalWidth, els.cropImage.naturalHeight);
+    state.pendingCrop.autoSuggested = false;
+  }
   renderCropSelection();
 }
 
