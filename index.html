@@ -7,7 +7,7 @@
     <title>Wall Picture Planner</title>
     <meta
       name="description"
-      content="Plan picture frames on a wall with real dimensions, exact frame spacing, layout search, and a wall-photo background."
+      content="Plan picture frames on a wall with real dimensions, minimum frame spacing, freeform layout search, and a wall-photo background."
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -16,7 +16,7 @@
       <p class="eyebrow">Open source wall layout planner</p>
       <h1>Wall Picture Planner</h1>
       <p class="subtitle">
-        Built for phones. Enter the wall size in mm, choose frame spacing, take or choose a wall photo,
+        Built for phones. Enter the wall size in mm, choose minimum frame spacing, take or choose a wall photo,
         then add frames and flip through unique gallery-wall arrangements.
       </p>
     </header>
@@ -126,13 +126,23 @@
             <div id="frame-layer" class="frame-layer" aria-live="polite"></div>
           </div>
         </div>
+
+        <div class="placement-card">
+          <div class="section-heading compact">
+            <h3>Placement instructions</h3>
+            <p>Measurements are from the top-left edge of the full wall area, not from the inner margin line.</p>
+          </div>
+          <div id="placement-instructions" class="placement-instructions empty-state">
+            Add picture frames to see placement measurements.
+          </div>
+        </div>
       </section>
 
       <section class="panel controls-panel frames-panel">
         <div class="section-heading compact">
           <h2>3. Add picture frames</h2>
           <p>
-            Frames are redistributed across the usable wall area using the exact photo spacing value.
+            Frames are redistributed across the usable wall area using the minimum photo spacing value.
             Add batches of same-size frames and flip through unique visual arrangements.
           </p>
         </div>

@@ -445,6 +445,75 @@ select:focus {
   display: none;
 }
 
+.placement-card {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.placement-instructions {
+  display: grid;
+  gap: 12px;
+  color: var(--text);
+}
+
+.instruction-summary {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: #244a64;
+  line-height: 1.45;
+}
+
+.placement-instructions h4 {
+  margin: 2px 0 0;
+  font-size: 0.96rem;
+}
+
+.instruction-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 8px;
+  line-height: 1.42;
+}
+
+.instruction-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--panel-border);
+  border-radius: 14px;
+  background: white;
+}
+
+.instruction-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 520px;
+  font-size: 0.92rem;
+}
+
+.instruction-table th,
+.instruction-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid rgba(216, 208, 196, 0.72);
+  text-align: left;
+  vertical-align: top;
+}
+
+.instruction-table th {
+  font-weight: 800;
+  color: var(--text);
+  background: #fbf8f2;
+}
+
+.instruction-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .modal {
   position: fixed;
   inset: 0;

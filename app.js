@@ -89,6 +89,7 @@ const els = {
   layoutProgress: document.getElementById('layout-progress'),
   prevLayout: document.getElementById('prev-layout'),
   nextLayout: document.getElementById('next-layout'),
+  placementInstructions: document.getElementById('placement-instructions'),
 };
 
 function formatNumber(value) {
@@ -403,7 +404,6 @@ function generateCompositions(total) {
   }
 
   walk(total, []);
-
   return compositions.sort((a, b) => {
     const aRows = a.length;
     const bRows = b.length;
@@ -459,21 +459,29 @@ function signatureForPlacements(placements) {
     .join('|');
 }
 
-function getSizePattern(rows) {
+function getSizePatternFromRows(rows) {
   const uniqueWidths = Array.from(new Set(rows.flat().map((frame) => Number(frame.width.toFixed(3))))).sort((a, b) => b - a);
   if (uniqueWidths.length !== 2) return '';
   const [large, small] = uniqueWidths;
-  return rows.map((row) => row.map((frame) => (Math.abs(frame.width - large) < 0.001 ? 'W' : Math.abs(frame.width - small) < 0.001 ? 'N' : 'X')).join('')).join('/');
+  return rows
+    .map((row) => row.map((frame) => (Math.abs(frame.width - large) < 0.001 ? 'W' : Math.abs(frame.width - small) < 0.001 ? 'N' : 'X')).join(''))
+    .join('/');
 }
 
 function isReferenceAlternatingRows(rows) {
   if (rows.length !== 2 || rows.some((row) => row.length !== 4)) return false;
-  const pattern = getSizePattern(rows);
+  const pattern = getSizePatternFromRows(rows);
   return pattern === 'WNWN/NWNW' || pattern === 'NWNW/WNWN';
 }
 
-function rowPatternName(counts, kind, rows) {
-  if (isReferenceAlternatingRows(rows)) return 'Reference-style alternating gallery';
+function layoutNameFor(raw, rows) {
+  if (raw.referenceStyle || isReferenceAlternatingRows(rows)) return 'Reference-style alternating 4-column gallery';
+  if (raw.kind === 'grid') {
+    const emptyCount = raw.gridRows * raw.gridColumns - raw.frameCount;
+    if (emptyCount > 0) return `${raw.gridRows}×${raw.gridColumns} staggered gallery grid`;
+    return `${raw.gridRows}×${raw.gridColumns} gallery grid`;
+  }
+  const counts = rows.map((row) => row.length);
   const key = counts.join('-');
   const names = {
     '4-4': 'Two-row gallery',
@@ -484,15 +492,15 @@ function rowPatternName(counts, kind, rows) {
     '3-3-3': 'Nine-frame gallery',
   };
   const base = names[key] ?? `${counts.length}-row gallery`;
-  if (kind === 'matrix') return `${base} matrix`;
-  if (kind === 'columns') return `${counts.length}-column gallery`;
+  if (raw.kind === 'matrix') return `${base} with aligned columns`;
+  if (raw.kind === 'columns') return `${counts.length}-column vertical gallery`;
   return base;
 }
 
 function placeRowsExactSpacing(rows, wall, spacing, kind = 'rows') {
   const usableWidth = wall.width - wall.innerMargin * 2;
   const usableHeight = wall.height - wall.innerMargin * 2;
-  if (usableWidth <= 0 || usableHeight <= 0) return null;
+  if (usableWidth <= 0 || usableHeight <= 0 || !rows.length) return null;
 
   const rowWidths = rows.map((row) => row.reduce((sum, frame) => sum + frame.width, 0) + Math.max(0, row.length - 1) * spacing);
   const rowHeights = rows.map((row) => row.reduce((max, frame) => Math.max(max, frame.height), 0));
@@ -539,6 +547,7 @@ function placeRowsExactSpacing(rows, wall, spacing, kind = 'rows') {
     groupHeight,
     groupArea: bounds.area,
     bounds,
+    frameCount: rows.flat().length,
   };
 }
 
@@ -595,6 +604,7 @@ function placeMatrixExactSpacing(rows, wall, spacing) {
     groupHeight,
     groupArea: bounds.area,
     bounds,
+    frameCount: rows.flat().length,
   };
 }
 
@@ -646,48 +656,226 @@ function placeColumnsExactSpacing(columns, wall, spacing) {
     groupHeight,
     groupArea: bounds.area,
     bounds,
+    frameCount: columns.flat().length,
   };
 }
 
-function scoreCandidate(candidate, wall) {
+function maskHasNoEmptyRowsOrColumns(mask, rows, columns) {
+  const rowCounts = Array(rows).fill(0);
+  const columnCounts = Array(columns).fill(0);
+  mask.forEach((occupied, index) => {
+    if (!occupied) return;
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    rowCounts[row] += 1;
+    columnCounts[column] += 1;
+  });
+  return rowCounts.every(Boolean) && columnCounts.every(Boolean);
+}
+
+function generateGridMasks(rows, columns, occupiedCount) {
+  const cellCount = rows * columns;
+  const masks = [];
+  if (occupiedCount > cellCount) return masks;
+
+  function walk(index, remaining, mask) {
+    if (remaining === 0) {
+      const finished = mask.concat(Array(cellCount - index).fill(false));
+      if (maskHasNoEmptyRowsOrColumns(finished, rows, columns)) masks.push(finished);
+      return;
+    }
+    if (index >= cellCount) return;
+    if (cellCount - index < remaining) return;
+
+    mask.push(true);
+    walk(index + 1, remaining - 1, mask);
+    mask.pop();
+
+    mask.push(false);
+    walk(index + 1, remaining, mask);
+    mask.pop();
+  }
+
+  walk(0, occupiedCount, []);
+  return masks;
+}
+
+function generateGridSpecs(frameCount) {
+  const specs = [];
+  const maxRows = Math.min(5, frameCount);
+  const maxColumns = Math.min(5, frameCount);
+  for (let rows = 1; rows <= maxRows; rows += 1) {
+    for (let columns = 1; columns <= maxColumns; columns += 1) {
+      const cells = rows * columns;
+      if (cells < frameCount) continue;
+      if (cells > frameCount + 4) continue;
+      if (rows === 1 || columns === 1) continue;
+      specs.push({ rows, columns, cells, empty: cells - frameCount });
+    }
+  }
+  return specs.sort((a, b) => a.empty - b.empty || Math.abs(a.rows - a.columns) - Math.abs(b.rows - b.columns) || a.rows - b.rows || a.columns - b.columns);
+}
+
+function placeGridExactSpacing(sequence, mask, gridRows, gridColumns, wall, spacing) {
   const usableWidth = wall.width - wall.innerMargin * 2;
   const usableHeight = wall.height - wall.innerMargin * 2;
+  if (usableWidth <= 0 || usableHeight <= 0) return null;
+
+  const cells = Array.from({ length: gridRows }, () => Array(gridColumns).fill(null));
+  let cursor = 0;
+  for (let index = 0; index < mask.length; index += 1) {
+    if (!mask[index]) continue;
+    const frame = sequence[cursor];
+    if (!frame) return null;
+    const row = Math.floor(index / gridColumns);
+    const column = index % gridColumns;
+    cells[row][column] = frame;
+    cursor += 1;
+  }
+  if (cursor !== sequence.length) return null;
+
+  const columnWidths = Array.from({ length: gridColumns }, (_, column) =>
+    cells.reduce((max, row) => Math.max(max, row[column]?.width ?? 0), 0)
+  );
+  const rowHeights = cells.map((row) => row.reduce((max, frame) => Math.max(max, frame?.height ?? 0), 0));
+  if (columnWidths.some((value) => value <= 0) || rowHeights.some((value) => value <= 0)) return null;
+
+  const groupWidth = columnWidths.reduce((sum, value) => sum + value, 0) + Math.max(0, gridColumns - 1) * spacing;
+  const groupHeight = rowHeights.reduce((sum, value) => sum + value, 0) + Math.max(0, gridRows - 1) * spacing;
+  if (groupWidth > usableWidth || groupHeight > usableHeight) return null;
+
+  const startX = wall.innerMargin + (usableWidth - groupWidth) / 2;
+  const startY = wall.innerMargin + (usableHeight - groupHeight) / 2;
+  const placements = new Map();
+  const displayRows = [];
+  let y = startY;
+
+  for (let rowIndex = 0; rowIndex < gridRows; rowIndex += 1) {
+    let x = startX;
+    const items = [];
+    for (let columnIndex = 0; columnIndex < gridColumns; columnIndex += 1) {
+      const frame = cells[rowIndex][columnIndex];
+      if (frame) {
+        placements.set(frame.id, {
+          x: x + (columnWidths[columnIndex] - frame.width) / 2,
+          y: y + (rowHeights[rowIndex] - frame.height) / 2,
+          width: frame.width,
+          height: frame.height,
+          rowIndex,
+          columnIndex,
+        });
+        items.push(frame);
+      }
+      x += columnWidths[columnIndex] + spacing;
+    }
+    displayRows.push({ items, rowWidth: groupWidth, rowHeight: rowHeights[rowIndex], horizontalGap: spacing });
+    y += rowHeights[rowIndex] + spacing;
+  }
+
+  const bounds = getPlacementBounds(placements);
+  const rowPattern = displayRows.map((row) => row.items.length).join('-');
+  return {
+    ok: true,
+    kind: 'grid',
+    placements,
+    rows: displayRows,
+    rowCount: gridRows,
+    columnCount: gridColumns,
+    gridRows,
+    gridColumns,
+    rowPattern,
+    minGap: spacing,
+    spacing,
+    usableWidth,
+    usableHeight,
+    groupWidth,
+    groupHeight,
+    groupArea: bounds.area,
+    bounds,
+    frameCount: sequence.length,
+  };
+}
+
+function buildAlternatingReferenceCandidates(frames, wall, spacing) {
+  const groups = new Map();
+  frames.forEach((frame) => {
+    const key = uniqueSizeKey(frame);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(frame);
+  });
+  const buckets = Array.from(groups.values()).map((bucket) => [...bucket].sort((a, b) => a.id - b.id));
+  if (buckets.length !== 2) return [];
+  buckets.sort((a, b) => b[0].width - a[0].width || b[0].height - a[0].height);
+  const [wideFrames, narrowFrames] = buckets;
+  if (wideFrames.length !== narrowFrames.length || wideFrames.length < 2) return [];
+
+  const columnCount = wideFrames.length;
+  const results = [];
+  for (let startWide = 0; startWide <= 1; startWide += 1) {
+    const rows = [[], []];
+    for (let column = 0; column < columnCount; column += 1) {
+      const wideOnTop = (column + startWide) % 2 === 0;
+      rows[0].push(wideOnTop ? wideFrames[column] : narrowFrames[column]);
+      rows[1].push(wideOnTop ? narrowFrames[column] : wideFrames[column]);
+    }
+    const raw = placeMatrixExactSpacing(rows, wall, spacing);
+    if (raw) {
+      raw.kind = 'grid';
+      raw.gridRows = 2;
+      raw.gridColumns = columnCount;
+      raw.referenceStyle = true;
+      raw.mustKeep = true;
+      raw.rowPattern = rows.map((row) => row.length).join('-');
+      results.push(raw);
+    }
+  }
+  return results;
+}
+
+function scoreCandidate(candidate, wall) {
+  if (candidate.invalidReason) return Number.NEGATIVE_INFINITY;
+  const usableWidth = Math.max(1, wall.width - wall.innerMargin * 2);
+  const usableHeight = Math.max(1, wall.height - wall.innerMargin * 2);
   const usableAspect = usableWidth / usableHeight;
-  const groupAspect = candidate.groupWidth / candidate.groupHeight;
-  const rowWidths = candidate.rows.map((row) => row.rowWidth);
+  const groupAspect = Math.max(0.001, candidate.groupWidth / Math.max(1, candidate.groupHeight));
+  const rowWidths = candidate.rows.map((row) => row.rowWidth || candidate.groupWidth);
   const rowCounts = candidate.rows.map((row) => row.items.length);
-  const widthBalance = standardDeviation(rowWidths) / Math.max(1, usableWidth);
+  const widthBalance = standardDeviation(rowWidths) / usableWidth;
   const countBalance = standardDeviation(rowCounts) / Math.max(1, candidate.rows.length);
-  const aspectPenalty = Math.abs(Math.log(Math.max(0.01, groupAspect) / Math.max(0.01, usableAspect)));
+  const aspectPenalty = Math.abs(Math.log(groupAspect / Math.max(0.001, usableAspect)));
   const compactRatio = candidate.groupArea / Math.max(1, usableWidth * usableHeight);
-  const fillWidth = candidate.groupWidth / Math.max(1, usableWidth);
-  const fillHeight = candidate.groupHeight / Math.max(1, usableHeight);
-  const preferredWidthPenalty = Math.abs(fillWidth - 0.68);
-  const preferredHeightPenalty = Math.abs(fillHeight - 0.42);
-  const rowsBonus = candidate.rowPattern === '4-4' ? 220 : candidate.rowPattern === '3-2-3' || candidate.rowPattern === '2-4-2' ? 130 : 0;
-  const matrixPenalty = candidate.kind === 'matrix' ? 65 : 0;
-  const columnsPenalty = candidate.kind === 'columns' ? 80 : 0;
-  const referenceBonus = candidate.referenceStyle ? 1300 : 0;
+  const fillWidth = candidate.groupWidth / usableWidth;
+  const fillHeight = candidate.groupHeight / usableHeight;
+  const comfortableFillPenalty = Math.abs(fillWidth - 0.68) * 70 + Math.abs(fillHeight - 0.45) * 55;
+  const gridBonus = candidate.kind === 'grid' ? 110 : 0;
+  const staggerBonus = candidate.kind === 'grid' && candidate.gridRows * candidate.gridColumns > candidate.frameCount ? 95 : 0;
+  const matrixBonus = candidate.kind === 'matrix' ? 60 : 0;
+  const columnsBonus = candidate.kind === 'columns' ? 25 : 0;
+  const referenceBonus = candidate.referenceStyle ? 100000 : 0;
+  const mustKeepBonus = candidate.mustKeep ? 50000 : 0;
+  const rowPatternBonus = candidate.rowPattern === '4-4' ? 220 : candidate.rowPattern === '3-2-3' || candidate.rowPattern === '2-4-2' ? 150 : 0;
 
   return (
     referenceBonus +
-    rowsBonus -
-    widthBalance * 2200 -
-    countBalance * 700 -
-    aspectPenalty * 180 -
-    compactRatio * 160 -
-    preferredWidthPenalty * 130 -
-    preferredHeightPenalty * 90 -
-    matrixPenalty -
-    columnsPenalty
+    mustKeepBonus +
+    gridBonus +
+    staggerBonus +
+    matrixBonus +
+    columnsBonus +
+    rowPatternBonus -
+    widthBalance * 900 -
+    countBalance * 360 -
+    aspectPenalty * 90 -
+    compactRatio * 80 -
+    comfortableFillPenalty
   );
 }
 
-function finalizeCandidate(raw, wall, counts, indexInSearch) {
+function finalizeCandidate(raw, wall, indexInSearch) {
   const rows = raw.rows.map((row) => row.items);
-  const referenceStyle = raw.kind === 'rows' && isReferenceAlternatingRows(rows);
+  const referenceStyle = Boolean(raw.referenceStyle) || isReferenceAlternatingRows(rows);
   const signature = signatureForPlacements(raw.placements);
-  const name = rowPatternName(counts, raw.kind, rows);
+  const name = layoutNameFor({ ...raw, referenceStyle }, rows);
   const metrics = {
     score: scoreCandidate({ ...raw, referenceStyle }, wall),
     groupArea: raw.groupArea,
@@ -700,11 +888,20 @@ function finalizeCandidate(raw, wall, counts, indexInSearch) {
     ...raw,
     referenceStyle,
     signature,
-    key: `${raw.kind}:${raw.rowPattern}:${signature}`,
+    key: `${raw.kind}:${raw.gridRows ?? ''}x${raw.gridColumns ?? ''}:${raw.rowPattern}:${signature}`,
     name,
     metrics,
     searchOrder: indexInSearch,
   };
+}
+
+function candidateFamilyKey(candidate) {
+  if (candidate.referenceStyle) return 'reference';
+  if (candidate.kind === 'grid') {
+    const empties = (candidate.gridRows || 0) * (candidate.gridColumns || 0) - candidate.frameCount;
+    return `grid:${candidate.gridRows}x${candidate.gridColumns}:e${empties}`;
+  }
+  return `${candidate.kind}:${candidate.rowPattern}`;
 }
 
 function selectCandidates(candidates, compactRequired) {
@@ -717,16 +914,47 @@ function selectCandidates(candidates, compactRequired) {
     pool = pool.filter((candidate) => candidate.groupArea <= minArea + tolerance);
   }
 
-  return pool
-    .sort((a, b) => b.metrics.score - a.metrics.score || a.groupArea - b.groupArea || a.searchOrder - b.searchOrder)
-    .slice(0, MAX_CANDIDATES_TO_SHOW);
+  const sorted = [...pool].sort((a, b) => b.metrics.score - a.metrics.score || a.groupArea - b.groupArea || a.searchOrder - b.searchOrder);
+  const selected = [];
+  const selectedKeys = new Set();
+  const familyCounts = new Map();
+
+  function add(candidate) {
+    if (!candidate || selectedKeys.has(candidate.key)) return false;
+    selected.push(candidate);
+    selectedKeys.add(candidate.key);
+    const family = candidateFamilyKey(candidate);
+    familyCounts.set(family, (familyCounts.get(family) || 0) + 1);
+    return true;
+  }
+
+  sorted.filter((candidate) => candidate.mustKeep || candidate.referenceStyle).forEach(add);
+
+  for (const candidate of sorted) {
+    if (selected.length >= Math.min(MAX_CANDIDATES_TO_SHOW, 28)) break;
+    const family = candidateFamilyKey(candidate);
+    if ((familyCounts.get(family) || 0) === 0) add(candidate);
+  }
+
+  for (const candidate of sorted) {
+    if (selected.length >= Math.min(MAX_CANDIDATES_TO_SHOW, 40)) break;
+    const family = candidateFamilyKey(candidate);
+    if ((familyCounts.get(family) || 0) < 2) add(candidate);
+  }
+
+  for (const candidate of sorted) {
+    if (selected.length >= MAX_CANDIDATES_TO_SHOW) break;
+    add(candidate);
+  }
+
+  return selected;
 }
 
 function computeLayoutCandidates(frames, wall, settings = state.layoutSettings) {
   const spacing = Math.max(0, Number(settings.spacing) || 0);
   const usableWidth = wall.width - wall.innerMargin * 2;
   const usableHeight = wall.height - wall.innerMargin * 2;
-  const emptyStats = { visualPermutations: 0, estimatedPermutations: 0, rowPatterns: 0, checked: 0, unique: 0, truncated: false };
+  const emptyStats = { visualPermutations: 0, estimatedPermutations: 0, rowPatterns: 0, gridPatterns: 0, checked: 0, unique: 0, truncated: false };
 
   if (usableWidth <= 0 || usableHeight <= 0) {
     state.searchStats = emptyStats;
@@ -747,57 +975,69 @@ function computeLayoutCandidates(frames, wall, settings = state.layoutSettings) 
 
   const { sequences, estimated, truncated } = generateUniqueSizeSequences(frames);
   const compositions = generateCompositions(frames.length);
+  const gridSpecs = generateGridSpecs(frames.length);
+  const gridMasksBySpec = new Map();
+  gridSpecs.forEach((spec) => {
+    gridMasksBySpec.set(`${spec.rows}x${spec.columns}`, generateGridMasks(spec.rows, spec.columns, frames.length));
+  });
+
   const candidates = [];
   const seen = new Set();
   let checked = 0;
+  let stoppedForWorkLimit = false;
+  const maxChecks = frames.length <= 8 ? 600000 : frames.length <= 10 ? 280000 : 140000;
 
-  sequences.forEach((sequence) => {
-    compositions.forEach((counts) => {
+  function keep(raw) {
+    checked += 1;
+    if (!raw) return;
+    const candidate = finalizeCandidate(raw, wall, checked);
+    if (seen.has(candidate.signature)) return;
+    seen.add(candidate.signature);
+    candidates.push(candidate);
+  }
+
+  buildAlternatingReferenceCandidates(frames, wall, spacing).forEach((raw) => keep(raw));
+
+  outer:
+  for (const sequence of sequences) {
+    for (const counts of compositions) {
       const rows = sliceByCounts(sequence, counts);
-      const rawRow = placeRowsExactSpacing(rows, wall, spacing, 'rows');
-      checked += 1;
-      if (rawRow) {
-        const candidate = finalizeCandidate(rawRow, wall, counts, checked);
-        if (!seen.has(candidate.signature)) {
-          seen.add(candidate.signature);
-          candidates.push(candidate);
-        }
-      }
+      keep(placeRowsExactSpacing(rows, wall, spacing, 'rows'));
 
       if (rows.length > 1 && rows.every((row) => row.length === rows[0].length)) {
-        const rawMatrix = placeMatrixExactSpacing(rows, wall, spacing);
-        checked += 1;
-        if (rawMatrix) {
-          const candidate = finalizeCandidate(rawMatrix, wall, counts, checked);
-          if (!seen.has(candidate.signature)) {
-            seen.add(candidate.signature);
-            candidates.push(candidate);
-          }
-        }
+        keep(placeMatrixExactSpacing(rows, wall, spacing));
       }
 
       if (counts.length > 1) {
-        const columns = sliceByCounts(sequence, counts);
-        const rawColumn = placeColumnsExactSpacing(columns, wall, spacing);
-        checked += 1;
-        if (rawColumn) {
-          const candidate = finalizeCandidate(rawColumn, wall, counts, checked);
-          if (!seen.has(candidate.signature)) {
-            seen.add(candidate.signature);
-            candidates.push(candidate);
-          }
+        keep(placeColumnsExactSpacing(sliceByCounts(sequence, counts), wall, spacing));
+      }
+
+      if (checked > maxChecks) {
+        stoppedForWorkLimit = true;
+        break outer;
+      }
+    }
+
+    for (const spec of gridSpecs) {
+      const masks = gridMasksBySpec.get(`${spec.rows}x${spec.columns}`) || [];
+      for (const mask of masks) {
+        keep(placeGridExactSpacing(sequence, mask, spec.rows, spec.columns, wall, spacing));
+        if (checked > maxChecks) {
+          stoppedForWorkLimit = true;
+          break outer;
         }
       }
-    });
-  });
+    }
+  }
 
   state.searchStats = {
     visualPermutations: sequences.length,
     estimatedPermutations: estimated,
     rowPatterns: compositions.length,
+    gridPatterns: gridSpecs.reduce((sum, spec) => sum + (gridMasksBySpec.get(`${spec.rows}x${spec.columns}`)?.length || 0), 0),
     checked,
     unique: candidates.length,
-    truncated,
+    truncated: truncated || stoppedForWorkLimit,
   };
 
   const selected = selectCandidates(candidates, Boolean(settings.compact));
@@ -807,6 +1047,7 @@ function computeLayoutCandidates(frames, wall, settings = state.layoutSettings) 
 
   return selected;
 }
+
 
 function recalculateLayouts(preserveSelection = true) {
   const previousKey = preserveSelection ? getActiveLayout()?.key ?? state.selectedLayoutKey : null;
@@ -1232,6 +1473,148 @@ function cycleLayout(direction) {
   showMessage(`Showing layout ${state.selectedLayoutIndex + 1} of ${state.layoutCandidates.length}.`, 'info');
 }
 
+function getPlacedFramesForActiveLayout() {
+  const activeLayout = getActiveLayout();
+  if (!activeLayout || activeLayout.invalidReason) return [];
+  return state.frames
+    .map((frame) => {
+      const placement = activeLayout.placements.get(frame.id);
+      if (!placement) return null;
+      return {
+        frame,
+        placement,
+        rowIndex: Number.isFinite(placement.rowIndex) ? placement.rowIndex : 0,
+        columnIndex: Number.isFinite(placement.columnIndex) ? placement.columnIndex : 0,
+      };
+    })
+    .filter(Boolean);
+}
+
+function getInstructionRows(placed) {
+  const rowsByIndex = new Map();
+  placed.forEach((item) => {
+    const rowKey = Number.isFinite(item.placement.rowIndex) ? item.placement.rowIndex : Math.round(item.placement.y * 1000) / 1000;
+    if (!rowsByIndex.has(rowKey)) rowsByIndex.set(rowKey, []);
+    rowsByIndex.get(rowKey).push(item);
+  });
+
+  return Array.from(rowsByIndex.entries())
+    .map(([rowKey, items]) => ({
+      rowKey,
+      items: items.sort((a, b) => a.columnIndex - b.columnIndex || a.placement.x - b.placement.x || a.frame.id - b.frame.id),
+      minY: Math.min(...items.map((item) => item.placement.y)),
+      minX: Math.min(...items.map((item) => item.placement.x)),
+    }))
+    .sort((a, b) => a.minY - b.minY || a.minX - b.minX || Number(a.rowKey) - Number(b.rowKey));
+}
+
+function coordinateCopy(x, y) {
+  return `${formatNumber(x)} mm from left, ${formatNumber(y)} mm from top`;
+}
+
+function deltaCopy(dx, dy) {
+  return `ΔX ${formatNumber(dx)} mm, ΔY ${formatNumber(dy)} mm`;
+}
+
+function renderPlacementInstructions() {
+  if (!els.placementInstructions) return;
+  const activeLayout = getActiveLayout();
+
+  if (!activeLayout) {
+    els.placementInstructions.className = 'placement-instructions empty-state';
+    els.placementInstructions.textContent = 'No layout is available yet.';
+    return;
+  }
+
+  if (activeLayout.invalidReason) {
+    els.placementInstructions.className = 'placement-instructions empty-state';
+    els.placementInstructions.textContent = activeLayout.invalidReason;
+    return;
+  }
+
+  const placed = getPlacedFramesForActiveLayout();
+  if (!placed.length) {
+    els.placementInstructions.className = 'placement-instructions empty-state';
+    els.placementInstructions.textContent = 'Add picture frames to see placement measurements.';
+    return;
+  }
+
+  const rows = getInstructionRows(placed);
+  const firstItem = rows[0]?.items[0];
+  const ordered = rows.flatMap((row) => row.items);
+  const bounds = activeLayout.bounds ?? getPlacementBounds(activeLayout.placements);
+  if (!firstItem) return;
+
+  const steps = [];
+  let previousRowStart = null;
+  rows.forEach((row, rowNumber) => {
+    const rowStart = row.items[0];
+    if (!rowStart) return;
+
+    if (rowNumber === 0) {
+      steps.push(`<li><strong>${escapeHtml(rowStart.frame.name)}</strong>: start here. Top-left point is ${coordinateCopy(rowStart.placement.x, rowStart.placement.y)} from the wall area.</li>`);
+    } else {
+      const dx = rowStart.placement.x - previousRowStart.placement.x;
+      const dy = rowStart.placement.y - previousRowStart.placement.y;
+      steps.push(`<li><strong>${escapeHtml(rowStart.frame.name)}</strong>: start row ${rowNumber + 1}. Top-left point is ${coordinateCopy(rowStart.placement.x, rowStart.placement.y)}. From the previous row start: ${deltaCopy(dx, dy)}.</li>`);
+    }
+
+    row.items.forEach((item, itemIndex) => {
+      if (itemIndex === 0) return;
+      const previous = row.items[itemIndex - 1];
+      const dx = item.placement.x - previous.placement.x;
+      const dy = item.placement.y - previous.placement.y;
+      const edgeGap = item.placement.x - (previous.placement.x + previous.placement.width);
+      steps.push(`<li><strong>${escapeHtml(item.frame.name)}</strong>: from <strong>${escapeHtml(previous.frame.name)}</strong> top-left to this top-left: ${deltaCopy(dx, dy)}. Clear edge gap: ${formatNumber(edgeGap)} mm.</li>`);
+    });
+
+    previousRowStart = rowStart;
+  });
+
+  const tableRows = ordered
+    .map((item, index) => `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(item.frame.name)}</td>
+        <td>${formatNumber(item.placement.x)}</td>
+        <td>${formatNumber(item.placement.y)}</td>
+        <td>${formatNumber(item.placement.width)} × ${formatNumber(item.placement.height)}</td>
+      </tr>
+    `)
+    .join('');
+
+  els.placementInstructions.className = 'placement-instructions';
+  els.placementInstructions.innerHTML = `
+    <div class="instruction-summary">
+      <div><strong>Origin:</strong> top-left corner of the full measured wall area.</div>
+      <div><strong>First top-left point:</strong> ${escapeHtml(firstItem.frame.name)} at ${coordinateCopy(firstItem.placement.x, firstItem.placement.y)}.</div>
+      <div><strong>Layout footprint:</strong> ${formatNumber(bounds.width)} × ${formatNumber(bounds.height)} mm, starting ${coordinateCopy(bounds.left, bounds.top)}.</div>
+      <div><strong>Photo edge spacing:</strong> ${formatNumber(state.layoutSettings.spacing)} mm minimum between neighbouring photo edges.</div>
+    </div>
+
+    <h4>Top-left placement sequence</h4>
+    <ol class="instruction-steps">
+      ${steps.join('')}
+    </ol>
+
+    <h4>Exact top-left coordinates</h4>
+    <div class="instruction-table-wrap">
+      <table class="instruction-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Photo</th>
+            <th>Left mm</th>
+            <th>Top mm</th>
+            <th>Size mm</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
 function renderSummary() {
   const usableWidth = state.wall.width - state.wall.innerMargin * 2;
   const usableHeight = state.wall.height - state.wall.innerMargin * 2;
@@ -1300,7 +1683,7 @@ function renderLayoutToolbar() {
   const stats = state.searchStats;
   if (els.layoutProgress && stats) {
     const truncatedCopy = stats.truncated ? `; stopped after ${stats.visualPermutations} visual permutations` : '';
-    els.layoutProgress.textContent = `Search checked ${stats.checked.toLocaleString()} arrangements from ${stats.visualPermutations.toLocaleString()} visual size-order permutations and kept ${stats.unique.toLocaleString()} unique geometries${truncatedCopy}.`;
+    els.layoutProgress.textContent = `Search checked ${stats.checked.toLocaleString()} arrangements from ${stats.visualPermutations.toLocaleString()} visual size-order permutations, ${Number(stats.rowPatterns || 0).toLocaleString()} row patterns, and ${Number(stats.gridPatterns || 0).toLocaleString()} grid masks; kept ${stats.unique.toLocaleString()} unique geometries${truncatedCopy}.`;
   }
 
   const disableSwitching = state.layoutCandidates.length <= 1;
@@ -1369,6 +1752,7 @@ function render() {
   renderSummary();
   renderFrameList();
   renderLayoutToolbar();
+  renderPlacementInstructions();
   renderWall();
   if (state.pendingCrop) renderCropSelection();
   showMessage(state.lastMessage.text, state.lastMessage.type);
