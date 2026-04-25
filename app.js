@@ -15,6 +15,12 @@ const state = {
   },
   frames: [],
   nextId: 1,
+  draftFrame: {
+    name: 'Picture',
+    width: 300,
+    height: 400,
+    quantity: 1,
+  },
   layoutCandidates: [],
   selectedLayoutIndex: 0,
   selectedLayoutKey: null,
@@ -54,6 +60,7 @@ const els = {
   cancelCrop: document.getElementById('cancel-crop'),
   clearFrames: document.getElementById('clear-frames'),
   frameName: document.getElementById('frame-name'),
+  frameQuantity: document.getElementById('frame-quantity'),
   frameWidth: document.getElementById('frame-width'),
   frameHeight: document.getElementById('frame-height'),
   statusBanner: document.getElementById('status-banner'),
@@ -188,16 +195,31 @@ function persistState() {
   try {
     const activeLayout = getActiveLayout();
     const payload = {
-      version: 4,
+      version: 5,
       wall: state.wall,
       frames: state.frames,
       nextId: state.nextId,
       selectedLayoutKey: activeLayout?.key ?? null,
+      draftFrame: getCurrentFrameDraft(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (error) {
     showMessage('The browser could not save everything locally. Some data may not persist after refresh.', 'error');
   }
+}
+
+function getCurrentFrameDraft() {
+  return {
+    name: els.frameName?.value.trim() || state.draftFrame.name || 'Picture',
+    width: Number(els.frameWidth?.value) || state.draftFrame.width || 300,
+    height: Number(els.frameHeight?.value) || state.draftFrame.height || 400,
+    quantity: Math.max(1, Math.floor(Number(els.frameQuantity?.value) || state.draftFrame.quantity || 1)),
+  };
+}
+
+function persistDraftFrame() {
+  state.draftFrame = getCurrentFrameDraft();
+  persistState();
 }
 
 function restoreState() {
@@ -239,6 +261,14 @@ function restoreState() {
     }
 
     state.nextId = Number(parsed.nextId) > 0 ? Number(parsed.nextId) : state.frames.length + 1;
+    if (parsed.draftFrame && typeof parsed.draftFrame === 'object') {
+      state.draftFrame = {
+        name: typeof parsed.draftFrame.name === 'string' && parsed.draftFrame.name.trim() ? parsed.draftFrame.name.trim() : 'Picture',
+        width: Number(parsed.draftFrame.width) > 0 ? Number(parsed.draftFrame.width) : 300,
+        height: Number(parsed.draftFrame.height) > 0 ? Number(parsed.draftFrame.height) : 400,
+        quantity: Math.max(1, Math.min(50, Math.floor(Number(parsed.draftFrame.quantity) || 1))),
+      };
+    }
     state.selectedLayoutKey = typeof parsed.selectedLayoutKey === 'string' ? parsed.selectedLayoutKey : null;
   } catch (error) {
     console.warn('Could not restore saved state', error);
@@ -589,6 +619,9 @@ function getLayoutFamilyRank(candidate) {
 }
 
 function selectDiverseCandidates(candidates, maxCandidates = 24) {
+  const forced = candidates
+    .filter((candidate) => candidate.forceInclude)
+    .sort((a, b) => (a.forceRank ?? 0) - (b.forceRank ?? 0) || b.metrics.score - a.metrics.score);
   const sorted = [...candidates].sort((a, b) => b.metrics.score - a.metrics.score);
   const picked = [];
   const usedSignatures = new Set();
@@ -601,10 +634,16 @@ function selectDiverseCandidates(candidates, maxCandidates = 24) {
     return true;
   };
 
-  const patternOrder = ['2-4-2', '3-2-3', '4-4', '1-3-3-1', '2-2-2-2', '3-3-2', '2-3-3'];
+  forced.forEach((candidate) => {
+    if (picked.length >= maxCandidates) return;
+    if (addCandidate(candidate)) usedFamily.add(candidate.familyKey);
+  });
+
+  const patternOrder = ['4-4', '2-4-2', '3-2-3', '1-3-3-1', '2-2-2-2', '3-3-2', '2-3-3'];
   patternOrder.forEach((pattern) => {
-    const bestForPattern = sorted.find((candidate) => candidate.rowPattern === pattern && !candidate.transpose) ??
-      sorted.find((candidate) => candidate.rowPattern === pattern);
+    if (picked.length >= maxCandidates) return;
+    const bestForPattern = sorted.find((candidate) => candidate.rowPattern === pattern && !candidate.transpose && !candidate.forceInclude) ??
+      sorted.find((candidate) => candidate.rowPattern === pattern && !candidate.forceInclude);
     if (bestForPattern) {
       addCandidate(bestForPattern);
       usedFamily.add(bestForPattern.familyKey);
@@ -625,6 +664,188 @@ function selectDiverseCandidates(candidates, maxCandidates = 24) {
 
   return picked;
 }
+
+function placeMatrix(rowGroups, wall) {
+  const usableWidth = wall.width - wall.innerMargin * 2;
+  const usableHeight = wall.height - wall.innerMargin * 2;
+  const rowCount = rowGroups.length;
+  const columnCount = rowGroups.reduce((max, row) => Math.max(max, row.length), 0);
+
+  if (usableWidth <= 0 || usableHeight <= 0 || !rowCount || !columnCount) {
+    return { ok: false, reason: 'No usable wall area is available for this gallery matrix.' };
+  }
+
+  const columnWidths = Array.from({ length: columnCount }, (_, columnIndex) =>
+    rowGroups.reduce((max, row) => {
+      const frame = row[columnIndex];
+      return frame ? Math.max(max, frame.width) : max;
+    }, 0)
+  );
+  const rowHeights = rowGroups.map((row) => row.reduce((max, frame) => Math.max(max, frame.height), 0));
+  const totalColumnWidth = columnWidths.reduce((sum, value) => sum + value, 0);
+  const totalRowHeight = rowHeights.reduce((sum, value) => sum + value, 0);
+
+  if (totalColumnWidth > usableWidth) {
+    return { ok: false, reason: 'The gallery matrix is too wide for the usable wall area.' };
+  }
+  if (totalRowHeight > usableHeight) {
+    return { ok: false, reason: 'The gallery matrix is too tall for the usable wall area.' };
+  }
+
+  const horizontalGap = (usableWidth - totalColumnWidth) / (columnCount + 1);
+  const verticalGap = (usableHeight - totalRowHeight) / (rowCount + 1);
+  const placements = new Map();
+  const rows = [];
+  let currentY = wall.innerMargin + verticalGap;
+
+  rowGroups.forEach((row, rowIndex) => {
+    let currentX = wall.innerMargin + horizontalGap;
+    rows.push({
+      items: row,
+      rowWidth: totalColumnWidth,
+      rowHeight: rowHeights[rowIndex],
+      horizontalGap,
+      columnWidths: [...columnWidths],
+    });
+
+    for (let columnIndex = 0; columnIndex < columnCount; columnIndex += 1) {
+      const frame = row[columnIndex];
+      const columnWidth = columnWidths[columnIndex];
+      if (frame) {
+        placements.set(frame.id, {
+          x: currentX + (columnWidth - frame.width) / 2,
+          y: currentY + (rowHeights[rowIndex] - frame.height) / 2,
+          width: frame.width,
+          height: frame.height,
+          rowIndex,
+          columnIndex,
+        });
+      }
+      currentX += columnWidth + horizontalGap;
+    }
+
+    currentY += rowHeights[rowIndex] + verticalGap;
+  });
+
+  return {
+    ok: true,
+    usableWidth,
+    usableHeight,
+    placements,
+    rows,
+    minGap: Math.min(horizontalGap, verticalGap),
+    verticalGap,
+    horizontalGaps: Array.from({ length: rowCount }, () => horizontalGap),
+    rowCount,
+    columnCount,
+  };
+}
+
+function getWideNarrowGroupsForEight(frames) {
+  if (frames.length !== 8) return null;
+  const sorted = [...frames].sort((a, b) => b.width - a.width || b.height - a.height || a.id - b.id);
+  const wide = sorted.slice(0, 4);
+  const narrow = sorted.slice(4).sort((a, b) => a.width - b.width || b.height - a.height || a.id - b.id);
+  const avgWide = wide.reduce((sum, frame) => sum + frame.width, 0) / wide.length;
+  const avgNarrow = narrow.reduce((sum, frame) => sum + frame.width, 0) / narrow.length;
+
+  if (!Number.isFinite(avgWide) || !Number.isFinite(avgNarrow) || avgWide <= avgNarrow * 1.04) {
+    return null;
+  }
+
+  return {
+    wide: wide.sort((a, b) => a.id - b.id),
+    narrow: narrow.sort((a, b) => a.id - b.id),
+  };
+}
+
+function signatureForPlacements(placements) {
+  return Array.from(placements.values())
+    .map((placement) => ({
+      x: Number(placement.x.toFixed(1)),
+      y: Number(placement.y.toFixed(1)),
+      width: Number(placement.width.toFixed(1)),
+      height: Number(placement.height.toFixed(1)),
+    }))
+    .sort((a, b) => a.y - b.y || a.x - b.x || a.width - b.width || a.height - b.height)
+    .map((placement) => `${placement.x},${placement.y},${placement.width},${placement.height}`)
+    .join('|');
+}
+
+function buildFeaturedMatrixCandidate({ wall, frames, matrix, name, key, forceRank }) {
+  const result = placeMatrix(matrix, wall);
+  if (!result.ok) return null;
+
+  const metrics = scoreLayoutCandidate(result, wall, frames);
+  metrics.score += 9000 - forceRank * 40;
+
+  return {
+    ...result,
+    name,
+    key,
+    metrics,
+    rowPattern: matrix.map((row) => row.length).join('-'),
+    transpose: false,
+    familyKey: key,
+    signature: signatureForPlacements(result.placements),
+    forceInclude: true,
+    forceRank,
+    featured: true,
+  };
+}
+
+function buildFeaturedEightFrameGalleryCandidates(frames, wall) {
+  const groups = getWideNarrowGroupsForEight(frames);
+  if (!groups) return [];
+
+  const { wide, narrow } = groups;
+  const variants = [
+    {
+      key: 'featured:alternating-4-column',
+      name: 'Alternating 4-column gallery • like reference photo',
+      matrix: [
+        [wide[0], narrow[0], wide[1], narrow[1]],
+        [narrow[2], wide[2], narrow[3], wide[3]],
+      ],
+    },
+    {
+      key: 'featured:alternating-4-column-inverse',
+      name: 'Alternating 4-column gallery • inverse',
+      matrix: [
+        [narrow[0], wide[0], narrow[1], wide[1]],
+        [wide[2], narrow[2], wide[3], narrow[3]],
+      ],
+    },
+    {
+      key: 'featured:mirrored-checkerboard',
+      name: 'Mirrored checkerboard gallery • symmetric columns',
+      matrix: [
+        [wide[0], narrow[0], narrow[1], wide[1]],
+        [narrow[2], wide[2], wide[3], narrow[3]],
+      ],
+    },
+    {
+      key: 'featured:outside-anchors',
+      name: 'Outside anchor gallery • balanced pairs',
+      matrix: [
+        [narrow[0], wide[0], wide[1], narrow[1]],
+        [wide[2], narrow[2], narrow[3], wide[3]],
+      ],
+    },
+  ];
+
+  return variants
+    .map((variant, index) => buildFeaturedMatrixCandidate({
+      wall,
+      frames,
+      matrix: variant.matrix,
+      name: variant.name,
+      key: variant.key,
+      forceRank: index,
+    }))
+    .filter(Boolean);
+}
+
 
 
 function placeRows(rowGroups, wall) {
@@ -876,10 +1097,7 @@ function buildCandidate({
   const rowPattern = counts.join('-');
   const patternName = getLayoutPatternName(counts, transpose);
   const familyKey = `${rowPattern}:${transpose ? 'columns' : 'rows'}:${assignmentMode}`;
-  const signature = Array.from(result.placements.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([id, placement]) => `${id}:${placement.x.toFixed(1)},${placement.y.toFixed(1)},${placement.width.toFixed(1)},${placement.height.toFixed(1)}`)
-    .join('|');
+  const signature = signatureForPlacements(result.placements);
 
   return {
     ...result,
@@ -950,7 +1168,7 @@ function computeLayoutCandidates(frames, wall) {
   const countPatterns = getRowCountPatterns(frames.length);
   const orderings = getOrderingVariants(frames);
   const assignmentModes = getAssignmentModes();
-  const candidates = [];
+  const candidates = buildFeaturedEightFrameGalleryCandidates(frames, wall);
 
   orderings.forEach((ordering, orderingIndex) => {
     countPatterns.forEach((counts, countIndex) => {
@@ -1347,48 +1565,76 @@ function endCropInteraction(event) {
   state.cropInteraction = null;
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getNextNameIndex(baseName) {
+  const suffixPattern = new RegExp(`^${escapeRegExp(baseName)}\\s+(\\d+)$`);
+  let highest = 0;
+
+  state.frames.forEach((frame) => {
+    const match = frame.name.match(suffixPattern);
+    if (!match) return;
+    highest = Math.max(highest, Number(match[1]) || 0);
+  });
+
+  return highest + 1;
+}
+
 function addFrame(event) {
   event.preventDefault();
 
   const width = Number(els.frameWidth.value);
   const height = Number(els.frameHeight.value);
-  const customName = els.frameName.value.trim();
+  const quantity = Math.max(1, Math.min(50, Math.floor(Number(els.frameQuantity.value) || 1)));
+  const baseName = els.frameName.value.trim() || 'Picture';
 
   if (Number.isNaN(width) || Number.isNaN(height) || width <= 0 || height <= 0) {
     showMessage('Enter valid positive frame dimensions.', 'error');
     return;
   }
 
-  const frame = {
-    id: state.nextId,
-    name: customName || `Picture ${state.nextId}`,
-    width,
-    height,
-  };
-
   const usableWidth = state.wall.width - state.wall.innerMargin * 2;
   const usableHeight = state.wall.height - state.wall.innerMargin * 2;
-  if (frame.width > usableWidth || frame.height > usableHeight) {
-    showMessage(`Cannot add that picture frame. “${frame.name}” is too large for the usable wall area.`, 'error');
+  if (width > usableWidth || height > usableHeight) {
+    showMessage(`Cannot add that picture frame. “${baseName}” is too large for the usable wall area.`, 'error');
     return;
   }
 
-  state.frames = [...state.frames, frame];
-  state.nextId += 1;
-  recalculateLayouts(false);
-  els.frameForm.reset();
-  els.frameWidth.value = '300';
-  els.frameHeight.value = '400';
+  const startingNameIndex = getNextNameIndex(baseName);
+  const newFrames = Array.from({ length: quantity }, (_, index) => ({
+    id: state.nextId + index,
+    name: `${baseName} ${startingNameIndex + index}`,
+    width,
+    height,
+  }));
+
+  const nextFrames = [...state.frames, ...newFrames];
+  const nextLayouts = computeLayoutCandidates(nextFrames, state.wall);
+  const firstLayout = nextLayouts[0];
+  if (!nextLayouts.length || firstLayout?.invalidReason) {
+    showMessage(`Cannot add ${quantity} frame${quantity === 1 ? '' : 's'} at that size. ${firstLayout?.invalidReason ?? 'No valid layout remains in the usable wall area.'}`, 'error');
+    return;
+  }
+
+  state.frames = nextFrames;
+  state.nextId += quantity;
+  state.layoutCandidates = nextLayouts;
+  state.selectedLayoutIndex = 0;
+  state.selectedLayoutKey = getActiveLayout()?.key ?? null;
+  state.draftFrame = { name: baseName, width, height, quantity: 1 };
+
+  els.frameName.value = baseName;
+  els.frameWidth.value = formatNumber(width);
+  els.frameHeight.value = formatNumber(height);
+  els.frameQuantity.value = '1';
+
   render();
   persistState();
 
-  const activeLayout = getActiveLayout();
-  if (activeLayout?.invalidReason) {
-    showMessage(activeLayout.invalidReason, 'error');
-    return;
-  }
-
-  showMessage(`Added “${frame.name}”. ${state.layoutCandidates.length} layout options are ready to preview.`, 'info');
+  const rangeCopy = quantity > 1 ? ` through ${newFrames.at(-1).name}` : '';
+  showMessage(`Added ${quantity} “${baseName}” frame${quantity === 1 ? '' : 's'} as ${newFrames[0].name}${rangeCopy}. ${state.layoutCandidates.length} unique visual layouts are ready.`, 'info');
 }
 
 function removeFrame(frameId) {
@@ -1489,7 +1735,8 @@ function renderLayoutToolbar() {
     els.layoutName.textContent = activeLayout.name;
     const axisLabel = activeLayout.metrics.verticalSymmetry >= activeLayout.metrics.horizontalSymmetry ? 'vertical symmetry' : 'horizontal symmetry';
     const patternLabel = activeLayout.rowPattern ? ` • pattern ${activeLayout.rowPattern}` : '';
-    els.layoutMeta.textContent = `${state.selectedLayoutIndex + 1} of ${state.layoutCandidates.length} layouts${patternLabel} • prefers ${axisLabel}`;
+    const featuredLabel = activeLayout.featured ? ' • reference-style option' : '';
+    els.layoutMeta.textContent = `${state.selectedLayoutIndex + 1} of ${state.layoutCandidates.length} layouts${patternLabel}${featuredLabel} • prefers ${axisLabel}`;
   }
 
   const disableSwitching = state.layoutCandidates.length <= 1;
@@ -1613,6 +1860,10 @@ function syncFormValuesFromState() {
   els.wallWidth.value = formatNumber(state.wall.width);
   els.wallHeight.value = formatNumber(state.wall.height);
   els.innerMargin.value = formatNumber(state.wall.innerMargin);
+  els.frameName.value = state.draftFrame.name || 'Picture';
+  els.frameWidth.value = formatNumber(state.draftFrame.width || 300);
+  els.frameHeight.value = formatNumber(state.draftFrame.height || 400);
+  els.frameQuantity.value = String(Math.max(1, Math.min(50, Math.floor(state.draftFrame.quantity || 1))));
 }
 
 function init() {
@@ -1642,6 +1893,10 @@ function init() {
   els.cropStage.addEventListener('pointerup', endCropInteraction);
   els.cropStage.addEventListener('pointercancel', endCropInteraction);
   els.frameForm.addEventListener('submit', addFrame);
+  [els.frameName, els.frameWidth, els.frameHeight, els.frameQuantity].forEach((input) => {
+    input.addEventListener('change', persistDraftFrame);
+    input.addEventListener('blur', persistDraftFrame);
+  });
   els.clearFrames.addEventListener('click', clearFrames);
   els.prevLayout.addEventListener('click', () => cycleLayout(-1));
   els.nextLayout.addEventListener('click', () => cycleLayout(1));

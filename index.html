@@ -126,10 +126,16 @@
         </div>
 
         <form id="frame-form" class="stack-form">
-          <label>
-            <span>Picture label</span>
-            <input id="frame-name" name="frameName" type="text" maxlength="60" placeholder="Living room print" />
-          </label>
+          <div class="grid two-up">
+            <label>
+              <span>Picture description</span>
+              <input id="frame-name" name="frameName" type="text" maxlength="60" value="Picture" placeholder="Picture" />
+            </label>
+            <label>
+              <span>How many same-size frames?</span>
+              <input id="frame-quantity" name="frameQuantity" type="number" min="1" max="50" step="1" value="1" required />
+            </label>
+          </div>
 
           <div class="grid two-up">
             <label>
