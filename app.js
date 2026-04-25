@@ -351,43 +351,87 @@ function centerBoostCounts(counts) {
   return boosted;
 }
 
+function addCountPattern(patterns, seen, counts) {
+  const cleaned = counts.map((count) => Number(count)).filter((count) => Number.isFinite(count) && count > 0);
+  if (!cleaned.length) return;
+  const key = cleaned.join('-');
+  if (!seen.has(key)) {
+    seen.add(key);
+    patterns.push(cleaned);
+  }
+}
+
 function getRowCountPatterns(total) {
-  const maxRows = Math.min(total, 4);
   const patterns = [];
   const seen = new Set();
+  const add = (counts) => addCountPattern(patterns, seen, counts);
 
-  for (let rows = 1; rows <= maxRows; rows += 1) {
+  add([total]);
+
+  const explicit = {
+    2: [[1, 1]],
+    3: [[1, 2], [2, 1], [1, 1, 1]],
+    4: [[2, 2], [1, 2, 1], [1, 1, 1, 1]],
+    5: [[2, 1, 2], [1, 3, 1], [2, 3], [3, 2]],
+    6: [[3, 3], [2, 2, 2], [2, 1, 3], [3, 1, 2], [1, 4, 1]],
+    7: [[3, 1, 3], [2, 3, 2], [2, 2, 3], [3, 2, 2], [1, 2, 2, 2]],
+    8: [[4, 4], [3, 2, 3], [2, 4, 2], [2, 3, 3], [3, 3, 2], [1, 3, 3, 1], [2, 2, 2, 2]],
+    9: [[3, 3, 3], [2, 3, 4], [4, 3, 2], [2, 2, 3, 2], [1, 3, 3, 2]],
+    10: [[5, 5], [3, 4, 3], [2, 3, 3, 2], [2, 2, 2, 2, 2]],
+  };
+
+  (explicit[total] || []).forEach(add);
+
+  const maxRows = Math.min(total, 5);
+  for (let rows = 2; rows <= maxRows; rows += 1) {
     const base = distributeCountsEvenly(total, rows);
-    const variants = [base, [...base].reverse(), centerBoostCounts(base), centerBoostCounts([...base].reverse())];
-
-    for (const candidate of variants) {
-      const cleaned = candidate.filter((count) => count > 0);
-      const key = cleaned.join('-');
-      if (!seen.has(key)) {
-        seen.add(key);
-        patterns.push(cleaned);
-      }
-    }
+    add(base);
+    add([...base].reverse());
+    add(centerBoostCounts(base));
+    add(centerBoostCounts([...base].reverse()));
   }
 
   return patterns;
 }
 
+
+function interleaveExtremes(frames, startWithLargest = true) {
+  const sorted = [...frames].sort((a, b) => getFrameArea(b) - getFrameArea(a) || b.width - a.width || a.id - b.id);
+  const result = [];
+  let left = 0;
+  let right = sorted.length - 1;
+  let takeLargest = startWithLargest;
+
+  while (left <= right) {
+    if (takeLargest) {
+      result.push(sorted[left]);
+      left += 1;
+    } else {
+      result.push(sorted[right]);
+      right -= 1;
+    }
+    takeLargest = !takeLargest;
+  }
+
+  return result;
+}
+
 function getOrderingVariants(frames) {
   const byAreaDesc = [...frames].sort((a, b) => getFrameArea(b) - getFrameArea(a) || b.width - a.width || a.id - b.id);
   const byAreaAsc = [...byAreaDesc].reverse();
-  const byLandscapeThenPortrait = [...frames].sort((a, b) => {
-    const landscapeDiff = Number(b.width >= b.height) - Number(a.width >= a.height);
-    if (landscapeDiff !== 0) return landscapeDiff;
-    return getFrameArea(b) - getFrameArea(a) || a.id - b.id;
-  });
+  const wideFirst = [...frames].sort((a, b) => b.width - a.width || getFrameArea(b) - getFrameArea(a) || a.id - b.id);
+  const narrowFirst = [...wideFirst].reverse();
+  const highLow = interleaveExtremes(frames, true);
+  const lowHigh = interleaveExtremes(frames, false);
+
   const portraits = byAreaDesc.filter((frame) => frame.height > frame.width);
   const landscapes = byAreaDesc.filter((frame) => frame.width >= frame.height);
-  const alternating = [];
+  const alternatingOrientation = [];
   while (portraits.length || landscapes.length) {
-    if (landscapes.length) alternating.push(landscapes.shift());
-    if (portraits.length) alternating.push(portraits.shift());
+    if (landscapes.length) alternatingOrientation.push(landscapes.shift());
+    if (portraits.length) alternatingOrientation.push(portraits.shift());
   }
+
   const bySquareness = [...frames].sort((a, b) => {
     const da = Math.abs(a.width / a.height - 1);
     const db = Math.abs(b.width / b.height - 1);
@@ -395,13 +439,17 @@ function getOrderingVariants(frames) {
   });
 
   return [
-    { key: 'area-desc', name: 'Balanced row gallery', frames: byAreaDesc },
-    { key: 'area-asc', name: 'Alternating mosaic', frames: byAreaAsc },
-    { key: 'landscape-mix', name: 'Landscape-led gallery', frames: byLandscapeThenPortrait },
-    { key: 'alternating', name: 'Center-weighted stack', frames: alternating },
-    { key: 'square-first', name: 'Even gallery wall', frames: bySquareness },
+    { key: 'high-low', name: 'large-small mix', frames: highLow },
+    { key: 'low-high', name: 'small-large mix', frames: lowHigh },
+    { key: 'wide-first', name: 'wide frame anchors', frames: wideFirst },
+    { key: 'narrow-first', name: 'narrow frame anchors', frames: narrowFirst },
+    { key: 'area-desc', name: 'large frame anchors', frames: byAreaDesc },
+    { key: 'area-asc', name: 'light-to-heavy gallery', frames: byAreaAsc },
+    { key: 'orientation-mix', name: 'orientation mix', frames: alternatingOrientation.length ? alternatingOrientation : highLow },
+    { key: 'square-first', name: 'shape-balanced mix', frames: bySquareness },
   ];
 }
+
 
 function sliceFramesByCounts(frames, counts) {
   const groups = [];
@@ -412,6 +460,172 @@ function sliceFramesByCounts(frames, counts) {
   }
   return groups;
 }
+
+function getLayoutPatternName(counts, transpose = false) {
+  const key = counts.join('-');
+  const names = {
+    '4-4': 'Two-row grid',
+    '3-2-3': 'Salon stagger',
+    '2-4-2': 'Centered showcase band',
+    '2-3-3': 'Left-weighted gallery',
+    '3-3-2': 'Right-weighted gallery',
+    '1-3-3-1': 'Diamond gallery',
+    '2-2-2-2': 'Column pairs',
+    '3-3-3': 'Nine-frame grid',
+    '2-3-2': 'Centered trio gallery',
+    '1-4-1': 'Wide center band',
+    '2-2-2': 'Three stacked pairs',
+  };
+  const baseName = names[key] ?? `${counts.length}-row gallery`;
+  return transpose ? `${baseName} columns` : baseName;
+}
+
+function arrangeRowsVertically(rowGroups, variant = 0) {
+  if (rowGroups.length <= 2) {
+    return variant % 2 === 1 ? [...rowGroups].reverse() : rowGroups;
+  }
+
+  const entries = rowGroups.map((group, index) => ({
+    id: index,
+    width: group.reduce((sum, frame) => sum + frame.width, 0),
+    height: group.reduce((max, frame) => Math.max(max, frame.height), 0),
+    group,
+  }));
+
+  if (variant === 0) return entries.map((entry) => entry.group);
+  if (variant === 1) return [...entries].reverse().map((entry) => entry.group);
+
+  return arrangeSymmetrically(entries, variant - 2).map((entry) => entry.group);
+}
+
+function assignRowsByGreedyWidth(frames, counts) {
+  const rows = counts.map(() => []);
+  const rowWidths = counts.map(() => 0);
+  const ordered = [...frames].sort((a, b) => getFrameArea(b) - getFrameArea(a) || b.width - a.width || a.id - b.id);
+
+  ordered.forEach((frame) => {
+    let bestIndex = -1;
+    let bestScore = Number.POSITIVE_INFINITY;
+    counts.forEach((count, index) => {
+      if (rows[index].length >= count) return;
+      const fillRatio = rows[index].length / count;
+      const centerPenalty = Math.abs(index - (counts.length - 1) / 2) * 0.001;
+      const score = rowWidths[index] + fillRatio * 50 + centerPenalty;
+      if (score < bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    });
+    if (bestIndex >= 0) {
+      rows[bestIndex].push(frame);
+      rowWidths[bestIndex] += frame.width;
+    }
+  });
+
+  return rows;
+}
+
+function assignRowsByOuterMirror(frames, counts) {
+  const rows = counts.map(() => []);
+  const ordered = interleaveExtremes(frames, true);
+  const slotOrder = [];
+  const rowOrder = getCenterOutIndexes(counts.length, false);
+
+  while (slotOrder.length < frames.length) {
+    for (const rowIndex of rowOrder) {
+      const alreadyReserved = rows[rowIndex].length + slotOrder.filter((index) => index === rowIndex).length;
+      if (alreadyReserved < counts[rowIndex]) {
+        slotOrder.push(rowIndex);
+      }
+      if (slotOrder.length >= frames.length) break;
+    }
+  }
+
+  ordered.forEach((frame, index) => {
+    rows[slotOrder[index]].push(frame);
+  });
+
+  return rows;
+}
+
+function assignRowsByCounts(frames, counts, mode = 'slice') {
+  if (mode === 'greedy-width') return assignRowsByGreedyWidth(frames, counts);
+  if (mode === 'outer-mirror') return assignRowsByOuterMirror(frames, counts);
+  if (mode === 'reverse-slice') return sliceFramesByCounts([...frames].reverse(), counts);
+
+  const groups = sliceFramesByCounts(frames, counts);
+  if (mode === 'snake') {
+    return groups.map((group, index) => (index % 2 === 1 ? [...group].reverse() : group));
+  }
+  if (mode === 'reverse-snake') {
+    return groups.map((group, index) => (index % 2 === 0 ? [...group].reverse() : group));
+  }
+  return groups;
+}
+
+function getAssignmentModes() {
+  return [
+    { key: 'slice', label: 'ordered' },
+    { key: 'snake', label: 'staggered' },
+    { key: 'reverse-slice', label: 'inverted' },
+    { key: 'greedy-width', label: 'width-balanced' },
+    { key: 'outer-mirror', label: 'mirror-balanced' },
+  ];
+}
+
+function getLayoutFamilyRank(candidate) {
+  const rankByPattern = {
+    '2-4-2': 0,
+    '3-2-3': 1,
+    '4-4': 2,
+    '1-3-3-1': 3,
+    '2-2-2-2': 4,
+    '3-3-2': 5,
+    '2-3-3': 6,
+  };
+  const patternRank = rankByPattern[candidate.rowPattern] ?? 20;
+  const transposeBonus = candidate.transpose ? 0.25 : 0;
+  return patternRank + transposeBonus;
+}
+
+function selectDiverseCandidates(candidates, maxCandidates = 24) {
+  const sorted = [...candidates].sort((a, b) => b.metrics.score - a.metrics.score);
+  const picked = [];
+  const usedSignatures = new Set();
+  const usedFamily = new Set();
+
+  const addCandidate = (candidate) => {
+    if (!candidate || usedSignatures.has(candidate.signature)) return false;
+    usedSignatures.add(candidate.signature);
+    picked.push(candidate);
+    return true;
+  };
+
+  const patternOrder = ['2-4-2', '3-2-3', '4-4', '1-3-3-1', '2-2-2-2', '3-3-2', '2-3-3'];
+  patternOrder.forEach((pattern) => {
+    const bestForPattern = sorted.find((candidate) => candidate.rowPattern === pattern && !candidate.transpose) ??
+      sorted.find((candidate) => candidate.rowPattern === pattern);
+    if (bestForPattern) {
+      addCandidate(bestForPattern);
+      usedFamily.add(bestForPattern.familyKey);
+    }
+  });
+
+  const byFamily = [...sorted].sort((a, b) => getLayoutFamilyRank(a) - getLayoutFamilyRank(b) || b.metrics.score - a.metrics.score);
+  for (const candidate of byFamily) {
+    if (picked.length >= maxCandidates) break;
+    if (usedFamily.has(candidate.familyKey)) continue;
+    if (addCandidate(candidate)) usedFamily.add(candidate.familyKey);
+  }
+
+  for (const candidate of sorted) {
+    if (picked.length >= maxCandidates) break;
+    addCandidate(candidate);
+  }
+
+  return picked;
+}
+
 
 function placeRows(rowGroups, wall) {
   const usableWidth = wall.width - wall.innerMargin * 2;
@@ -637,23 +851,20 @@ function buildCandidate({
   counts,
   rowVariant,
   groupVariant,
+  assignmentMode = 'slice',
   transpose = false,
-  label,
   strategyKey,
+  orderingName,
 }) {
   const workingWall = transpose
     ? { ...wall, width: wall.height, height: wall.width }
     : wall;
   const workingFrames = transpose ? orderedFrames.map(transposeFrame) : orderedFrames;
-  const groups = sliceFramesByCounts(workingFrames, counts)
+  const rawGroups = assignRowsByCounts(workingFrames, counts, assignmentMode)
     .map((group) => arrangeSymmetrically(group, rowVariant))
     .filter((group) => group.length > 0);
 
-  const arrangedRows = arrangeSymmetrically(
-    groups.map((group, index) => ({ id: index + 1, width: group.reduce((sum, frame) => sum + frame.width, 0), height: group.reduce((sum, frame) => sum + frame.height, 0), group })),
-    groupVariant
-  ).map((entry) => entry.group);
-
+  const arrangedRows = arrangeRowsVertically(rawGroups, groupVariant);
   let result = placeRows(arrangedRows, workingWall);
   if (!result.ok) return null;
 
@@ -662,11 +873,23 @@ function buildCandidate({
   }
 
   const metrics = scoreLayoutCandidate(result, wall, frames);
+  const rowPattern = counts.join('-');
+  const patternName = getLayoutPatternName(counts, transpose);
+  const familyKey = `${rowPattern}:${transpose ? 'columns' : 'rows'}:${assignmentMode}`;
+  const signature = Array.from(result.placements.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([id, placement]) => `${id}:${placement.x.toFixed(1)},${placement.y.toFixed(1)},${placement.width.toFixed(1)},${placement.height.toFixed(1)}`)
+    .join('|');
+
   return {
     ...result,
-    name: label,
-    key: `${strategyKey}:${counts.join('-')}:${rowVariant}:${groupVariant}:${transpose ? 't' : 'r'}`,
+    name: `${patternName} • ${orderingName}`,
+    key: `${strategyKey}:${rowPattern}:${assignmentMode}:${rowVariant}:${groupVariant}:${transpose ? 't' : 'r'}`,
     metrics,
+    rowPattern,
+    transpose,
+    familyKey,
+    signature,
   };
 }
 
@@ -719,48 +942,49 @@ function computeLayoutCandidates(frames, wall) {
         rowCount: 0,
         usableWidth,
         usableHeight,
-        metrics: { score: 0, symmetryScore: 1 },
+        metrics: { score: 0, symmetryScore: 1, verticalSymmetry: 1, horizontalSymmetry: 1 },
       },
     ];
   }
 
   const countPatterns = getRowCountPatterns(frames.length);
   const orderings = getOrderingVariants(frames);
+  const assignmentModes = getAssignmentModes();
   const candidates = [];
 
   orderings.forEach((ordering, orderingIndex) => {
     countPatterns.forEach((counts, countIndex) => {
-      const rowVariants = [0, 1];
-      const groupVariants = [0, 1];
-      rowVariants.forEach((rowVariant) => {
-        groupVariants.forEach((groupVariant) => {
-          const rowLabel = `${ordering.name}`;
-          const rowCandidate = buildCandidate({
-            wall,
-            frames,
-            orderedFrames: ordering.frames,
-            counts,
-            rowVariant,
-            groupVariant,
-            transpose: false,
-            label: rowLabel,
-            strategyKey: `${ordering.key}-${orderingIndex}-${countIndex}-rows`,
-          });
-          if (rowCandidate) candidates.push(rowCandidate);
+      assignmentModes.forEach((assignmentMode) => {
+        [0, 1, 2, 3].forEach((rowVariant) => {
+          [0, 1, 2, 3].forEach((groupVariant) => {
+            const rowCandidate = buildCandidate({
+              wall,
+              frames,
+              orderedFrames: ordering.frames,
+              counts,
+              rowVariant,
+              groupVariant,
+              assignmentMode: assignmentMode.key,
+              transpose: false,
+              orderingName: `${ordering.name}, ${assignmentMode.label}`,
+              strategyKey: `${ordering.key}-${orderingIndex}-${countIndex}-rows`,
+            });
+            if (rowCandidate) candidates.push(rowCandidate);
 
-          const columnLabel = ordering.name.includes('gallery') ? ordering.name.replace('gallery', 'column gallery') : `${ordering.name} columns`;
-          const columnCandidate = buildCandidate({
-            wall,
-            frames,
-            orderedFrames: ordering.frames,
-            counts,
-            rowVariant,
-            groupVariant,
-            transpose: true,
-            label: columnLabel,
-            strategyKey: `${ordering.key}-${orderingIndex}-${countIndex}-cols`,
+            const columnCandidate = buildCandidate({
+              wall,
+              frames,
+              orderedFrames: ordering.frames,
+              counts,
+              rowVariant,
+              groupVariant,
+              assignmentMode: assignmentMode.key,
+              transpose: true,
+              orderingName: `${ordering.name}, ${assignmentMode.label}`,
+              strategyKey: `${ordering.key}-${orderingIndex}-${countIndex}-cols`,
+            });
+            if (columnCandidate) candidates.push(columnCandidate);
           });
-          if (columnCandidate) candidates.push(columnCandidate);
         });
       });
     });
@@ -769,18 +993,14 @@ function computeLayoutCandidates(frames, wall) {
   const unique = [];
   const seen = new Set();
   for (const candidate of candidates) {
-    const signature = Array.from(candidate.placements.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([id, placement]) => `${id}:${placement.x.toFixed(1)},${placement.y.toFixed(1)}`)
-      .join('|');
-    if (seen.has(signature)) continue;
-    seen.add(signature);
+    if (seen.has(candidate.signature)) continue;
+    seen.add(candidate.signature);
     unique.push(candidate);
   }
 
-  unique.sort((a, b) => b.metrics.score - a.metrics.score);
-  return unique.slice(0, 10);
+  return selectDiverseCandidates(unique, 24);
 }
+
 
 function recalculateLayouts(preserveSelection = true) {
   const previousKey = preserveSelection ? getActiveLayout()?.key ?? state.selectedLayoutKey : null;
@@ -1268,7 +1488,8 @@ function renderLayoutToolbar() {
   } else {
     els.layoutName.textContent = activeLayout.name;
     const axisLabel = activeLayout.metrics.verticalSymmetry >= activeLayout.metrics.horizontalSymmetry ? 'vertical symmetry' : 'horizontal symmetry';
-    els.layoutMeta.textContent = `${state.selectedLayoutIndex + 1} of ${state.layoutCandidates.length} layouts • prefers ${axisLabel}`;
+    const patternLabel = activeLayout.rowPattern ? ` • pattern ${activeLayout.rowPattern}` : '';
+    els.layoutMeta.textContent = `${state.selectedLayoutIndex + 1} of ${state.layoutCandidates.length} layouts${patternLabel} • prefers ${axisLabel}`;
   }
 
   const disableSwitching = state.layoutCandidates.length <= 1;
