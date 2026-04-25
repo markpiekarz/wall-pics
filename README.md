@@ -1,42 +1,40 @@
 # Wall Picture Planner
 
-Mobile-first static web app for planning picture frames on a wall using real wall dimensions in millimetres.
+A mobile-first static web app for planning picture-frame layouts on a measured wall.
 
 ## Features
 
-- wall size setup in **mm only**
-- visible inner keep-clear margin boundary
-- take a wall photo directly from the phone camera or choose one from the gallery
-- drag a bright crop overlay to mark which part of the photo matches the measured wall
-- add multiple picture frames by width and height
-- automatic layout engine that generates multiple balanced gallery-wall arrangements
-- explicit reference-style 8-frame alternating layout for four wide and four narrow frames
-- instant **Previous layout / Next layout** switching so the user can compare alternatives quickly
-- local persistence of wall sizes, frame sizes, frame names, selected layout, and saved wall photo data using browser storage
+- All measurements are in millimetres.
+- Enter wall width, wall height, and inner wall margin.
+- Enter a photo-to-photo spacing value, defaulting to 10 mm.
+- Optional compact mode: only show arrangements that consume the minimum overall frame bounding area.
+- Take a wall photo from a phone camera or choose one from the gallery.
+- Select the part of the photo that corresponds to the measured wall.
+- Add many same-size picture frames at once.
+- Frame descriptions default to `Picture`; batches are named automatically, such as `Picture 1`, `Picture 2`, etc.
+- Layout search enumerates unique visual size-order permutations, then deduplicates layouts by visual geometry so identical same-size-frame swaps are not shown as separate layouts.
+- Layouts are saved locally with browser `localStorage`, including wall size, photo, frame sizes, frame names, selected layout, spacing, compact mode, and draft input values.
 
-## Layout behaviour
+## Layout behavior
 
-The app does not rely on the order that frames were added. It now builds a wider set of gallery-wall arrangements by mixing three ideas:
+The layout engine no longer relies on add order. It builds arrangements from the frame dimensions and checks row, matrix, and column groupings using the supplied spacing value.
 
-- row and column count patterns such as `4-4`, `3-2-3`, `2-4-2`, `1-3-3-1`, and `2-2-2-2`
-- size-aware ordering so large and small frames are mixed across the composition rather than grouped by add order
-- scoring for spacing, centering, and symmetry, followed by a diversity pass so the visible options are not all near-duplicates
+For repeated frame sizes, frames with identical dimensions are treated as visually interchangeable. This keeps the layout list useful: two layouts that only swap same-size photos are considered the same and only one is shown.
 
-For example, if the user adds four `436 × 336 mm` frames and four `286 × 336 mm` frames, the layout switcher now puts a reference-style `4 × 2` alternating gallery option first. It uses aligned columns and alternates wide/narrow frames across the top and bottom rows, similar to common living-room gallery-wall examples. Other options such as centered showcase bands, salon-style staggered rows, diamond-like stacks, and column-pair arrangements remain available.
+For a set like 4 frames at 436 × 336 mm and 4 frames at 286 × 336 mm, the search includes alternating two-row gallery arrangements such as wide/narrow/wide/narrow over narrow/wide/narrow/wide.
 
-## Hosting
+## Hosting on GitHub Pages
 
-This project is static HTML, CSS, and JavaScript and is suitable for GitHub Pages.
+This project is plain HTML, CSS, and JavaScript. No build step is required.
 
-## Persistence
+1. Put `index.html`, `styles.css`, `app.js`, `README.md`, and `LICENSE` in the repository root.
+2. In GitHub, open **Settings → Pages**.
+3. Select **Deploy from a branch**.
+4. Choose the `main` branch and `/ (root)` folder.
+5. Save.
 
-The app stores its data locally in the browser for the same site origin using `localStorage`. This is useful for testing, because after a refresh or redeploy the saved wall setup and frames remain available unless browser storage is cleared.
+The app will be served from your GitHub Pages URL.
 
+## Privacy
 
-## Duplicate visual layout filtering
-
-Layout options are deduplicated by their visible geometry, not by frame ID. If several frames have the same dimensions, the app will not keep multiple layout options that only swap those same-size frames into different positions.
-
-## Batch frame entry
-
-The frame form includes a default description of `Picture` and a quantity field. Adding 4 frames with description `Picture` creates `Picture 1`, `Picture 2`, `Picture 3`, and `Picture 4`; future batches continue the numbering.
+All photo handling and saved state remain local to the browser. The app does not upload wall photos or frame data anywhere.

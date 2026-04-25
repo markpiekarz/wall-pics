@@ -7,7 +7,7 @@
     <title>Wall Picture Planner</title>
     <meta
       name="description"
-      content="Plan picture frames on a wall with real dimensions, switch between balanced gallery layouts, and use a wall-photo background."
+      content="Plan picture frames on a wall with real dimensions, exact frame spacing, layout search, and a wall-photo background."
     />
     <link rel="stylesheet" href="styles.css" />
   </head>
@@ -16,8 +16,8 @@
       <p class="eyebrow">Open source wall layout planner</p>
       <h1>Wall Picture Planner</h1>
       <p class="subtitle">
-        Built for phones. Enter the wall size in mm, take or choose a wall photo, mark the wall area,
-        then add frames and flip through balanced gallery layouts instantly.
+        Built for phones. Enter the wall size in mm, choose frame spacing, take or choose a wall photo,
+        then add frames and flip through unique gallery-wall arrangements.
       </p>
     </header>
 
@@ -46,8 +46,19 @@
               <input id="inner-margin" name="innerMargin" type="number" min="0" step="0.1" value="120" required />
             </label>
             <label>
+              <span>Photo spacing (mm)</span>
+              <input id="frame-spacing" name="frameSpacing" type="number" min="0" step="0.1" value="10" required />
+            </label>
+          </div>
+
+          <div class="grid two-up">
+            <label>
               <span>Units</span>
               <input type="text" value="Millimetres (mm)" disabled />
+            </label>
+            <label class="checkbox-label">
+              <input id="compact-layout" name="compactLayout" type="checkbox" />
+              <span>Only show arrangements using the minimum overall frame area</span>
             </label>
           </div>
 
@@ -101,6 +112,7 @@
           <div class="layout-copy">
             <strong id="layout-name">Balanced gallery</strong>
             <small id="layout-meta">1 of 1 layouts</small>
+            <small id="layout-progress" class="layout-progress">Search ready.</small>
           </div>
           <div class="layout-toolbar-buttons">
             <button id="prev-layout" type="button" class="button-secondary">Previous layout</button>
@@ -120,8 +132,8 @@
         <div class="section-heading compact">
           <h2>3. Add picture frames</h2>
           <p>
-            Frames are redistributed across the usable wall area. The layout engine prefers even spacing and
-            symmetry, then lets you flip through alternative arrangements.
+            Frames are redistributed across the usable wall area using the exact photo spacing value.
+            Add batches of same-size frames and flip through unique visual arrangements.
           </p>
         </div>
 
