@@ -1,24 +1,28 @@
 # Wall Picture Planner
 
-A mobile-first static web app for planning picture-frame layouts on a measured wall.
+A mobile-first static web app for planning framed-photo layouts on a measured wall.
 
 ## Features
 
 - All measurements are in millimetres.
 - Enter wall width, wall height, and inner wall margin.
-- Enter a photo-to-photo spacing value, defaulting to 10 mm.
+- Enter the **outer frame dimensions** for every photo. The supplied width and height include the photo frame.
+- Frame thickness defaults to `20 mm`.
+- Photo-to-photo spacing defaults to `60 mm`, derived from the frame thickness and aligned with common gallery-wall guidance of roughly 50–75 mm between frames.
 - Optional compact mode: only show arrangements that consume the minimum overall frame bounding area.
 - Take a wall photo from a phone camera or choose one from the gallery.
 - Select the part of the photo that corresponds to the measured wall.
 - Add many same-size picture frames at once.
 - Frame descriptions default to `Picture`; batches are named automatically, such as `Picture 1`, `Picture 2`, etc.
+- Tap a placed frame in the wall preview to add or replace a custom image for that frame.
+- Uploaded frame images are treated as the full framed photo, because the dimensions already include the frame.
 - Layouts are generated from dimensions rather than add order.
 - Layouts are deduplicated by visual geometry, so swaps between same-size frames are not shown as different layouts.
-- Layouts are saved locally with browser `localStorage`, including wall size, photo, frame sizes, frame names, selected layout, spacing, compact mode, and draft input values.
+- Layouts are saved locally with browser `localStorage`, including wall size, wall photo, frame sizes, frame names, selected layout, spacing, compact mode, draft input values, and custom frame photos when browser storage allows.
 
 ## Layout behavior
 
-The layout engine uses the supplied spacing value as the minimum distance between photo frames. It now searches several arrangement families:
+The layout engine uses the supplied spacing value as the minimum distance between the **outer edges** of framed photos. It searches several arrangement families:
 
 - row shelves with exact spacing
 - aligned matrix grids
@@ -36,6 +40,15 @@ narrow / wide / narrow / wide
 ```
 
 The layout toolbar shows how many row patterns, grid masks, and visual size-order permutations were checked.
+
+## Frame thickness and spacing
+
+Frame thickness is used for two things:
+
+1. the default visual placeholder frame when no custom photo has been uploaded; and
+2. the recommended starting spacing between neighbouring framed-photo edges.
+
+The frame dimensions themselves are always the full outside dimensions. Changing frame thickness does not increase the layout footprint, because the frame is already included in the supplied width and height.
 
 ## Compact mode
 
@@ -55,8 +68,7 @@ The app will be served from your GitHub Pages URL.
 
 ## Privacy
 
-All photo handling and saved state remain local to the browser. The app does not upload wall photos or frame data anywhere.
-
+All photo handling and saved state remain local to the browser. The app does not upload wall photos, custom frame photos, or frame data anywhere. Large images are resized before saving to reduce local-storage pressure.
 
 ## Placement instructions
 

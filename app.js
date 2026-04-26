@@ -1,5 +1,9 @@
 const MIN_CROP_SIZE = 0.12;
 const STORAGE_KEY = 'wall-picture-planner-v4';
+const DEFAULT_FRAME_THICKNESS = 20;
+const FRAME_SPACING_MULTIPLIER = 3;
+const MIN_RECOMMENDED_SPACING = 50;
+const MAX_RECOMMENDED_SPACING = 75;
 const MAX_IMAGE_DIMENSION = 1600;
 const IMAGE_QUALITY = 0.84;
 const MAX_VISUAL_SEQUENCES = 50000;
@@ -16,7 +20,8 @@ const state = {
     cropSelection: null,
   },
   layoutSettings: {
-    spacing: 10,
+    spacing: DEFAULT_FRAME_THICKNESS * FRAME_SPACING_MULTIPLIER,
+    frameThickness: DEFAULT_FRAME_THICKNESS,
     compact: false,
   },
   frames: [],
@@ -33,10 +38,12 @@ const state = {
   searchStats: null,
   cameraStream: null,
   pendingCrop: null,
+  pendingFrameImageId: null,
+  spacingWasManuallyEdited: false,
   cropInteraction: null,
   lastMessage: {
     type: 'info',
-    text: 'Ready. Enter the wall size, spacing, then take a photo or choose one from your gallery.',
+    text: 'Ready. Enter the wall size, frame thickness, and spacing, then take a photo or choose one from your gallery.',
   },
 };
 
@@ -47,6 +54,7 @@ const els = {
   wallHeight: document.getElementById('wall-height'),
   innerMargin: document.getElementById('inner-margin'),
   frameSpacing: document.getElementById('frame-spacing'),
+  frameThickness: document.getElementById('frame-thickness'),
   compactLayout: document.getElementById('compact-layout'),
   wallImageCamera: document.getElementById('wall-image-camera'),
   wallImageGallery: document.getElementById('wall-image-gallery'),
@@ -61,6 +69,7 @@ const els = {
   cropModal: document.getElementById('crop-modal'),
   cameraVideo: document.getElementById('camera-video'),
   cameraCanvas: document.getElementById('camera-canvas'),
+  frameImageInput: document.getElementById('frame-image-input'),
   cropStage: document.getElementById('crop-stage'),
   cropImage: document.getElementById('crop-image'),
   cropSelection: document.getElementById('crop-selection'),
@@ -204,9 +213,17 @@ function getCurrentFrameDraft() {
   };
 }
 
+function getRecommendedSpacing(frameThickness) {
+  const raw = Math.max(0, Number(frameThickness) || 0) * FRAME_SPACING_MULTIPLIER;
+  if (raw <= 0) return MIN_RECOMMENDED_SPACING;
+  return clamp(raw, MIN_RECOMMENDED_SPACING, MAX_RECOMMENDED_SPACING);
+}
+
 function getCurrentLayoutSettings() {
+  const frameThickness = Math.max(0, Number(els.frameThickness?.value) || 0);
   return {
     spacing: Math.max(0, Number(els.frameSpacing?.value) || 0),
+    frameThickness,
     compact: Boolean(els.compactLayout?.checked),
   };
 }
@@ -215,7 +232,7 @@ function persistState() {
   try {
     const activeLayout = getActiveLayout();
     const payload = {
-      version: 6,
+      version: 7,
       wall: state.wall,
       layoutSettings: state.layoutSettings,
       frames: state.frames,
@@ -262,8 +279,15 @@ function restoreState() {
     }
 
     if (parsed.layoutSettings && typeof parsed.layoutSettings === 'object') {
+      const restoredThickness = Number(parsed.layoutSettings.frameThickness);
+      const hasStoredThickness = Number.isFinite(restoredThickness);
+      const frameThickness = hasStoredThickness ? Math.max(0, restoredThickness) : DEFAULT_FRAME_THICKNESS;
+      const restoredSpacing = Number(parsed.layoutSettings.spacing);
+      let spacing = Number.isFinite(restoredSpacing) ? Math.max(0, restoredSpacing) : getRecommendedSpacing(frameThickness);
+      if (!hasStoredThickness && spacing === 10) spacing = getRecommendedSpacing(frameThickness);
       state.layoutSettings = {
-        spacing: Math.max(0, Number(parsed.layoutSettings.spacing) || 10),
+        spacing,
+        frameThickness,
         compact: Boolean(parsed.layoutSettings.compact),
       };
     }
@@ -276,6 +300,8 @@ function restoreState() {
           name: typeof frame.name === 'string' && frame.name.trim() ? frame.name.trim() : `Picture ${index + 1}`,
           width: Number(frame.width),
           height: Number(frame.height),
+          photoDataUrl: typeof frame.photoDataUrl === 'string' ? frame.photoDataUrl : null,
+          photoName: typeof frame.photoName === 'string' ? frame.photoName : '',
         }));
     }
 
@@ -1420,6 +1446,8 @@ function addFrame(event) {
     name: `${baseName} ${startingNameIndex + index}`,
     width,
     height,
+    photoDataUrl: null,
+    photoName: '',
   }));
 
   const nextFrames = [...state.frames, ...newFrames];
@@ -1589,7 +1617,8 @@ function renderPlacementInstructions() {
       <div><strong>Origin:</strong> top-left corner of the full measured wall area.</div>
       <div><strong>First top-left point:</strong> ${escapeHtml(firstItem.frame.name)} at ${coordinateCopy(firstItem.placement.x, firstItem.placement.y)}.</div>
       <div><strong>Layout footprint:</strong> ${formatNumber(bounds.width)} × ${formatNumber(bounds.height)} mm, starting ${coordinateCopy(bounds.left, bounds.top)}.</div>
-      <div><strong>Photo edge spacing:</strong> ${formatNumber(state.layoutSettings.spacing)} mm minimum between neighbouring photo edges.</div>
+      <div><strong>Photo dimensions:</strong> all width/height values are outer frame dimensions, including the frame.</div>
+      <div><strong>Photo edge spacing:</strong> ${formatNumber(state.layoutSettings.spacing)} mm minimum between neighbouring outer frame edges.</div>
     </div>
 
     <h4>Top-left placement sequence</h4>
@@ -1628,7 +1657,8 @@ function renderSummary() {
   els.wallSummary.innerHTML = `
     <div><strong>Wall:</strong> ${areaLabel(state.wall.width, state.wall.height, state.wall.unit)}</div>
     <div><strong>Inner margin:</strong> ${formatNumber(state.wall.innerMargin)} ${state.wall.unit}</div>
-    <div><strong>Frame spacing:</strong> ${formatNumber(state.layoutSettings.spacing)} ${state.wall.unit}</div>
+    <div><strong>Frame thickness:</strong> ${formatNumber(state.layoutSettings.frameThickness ?? DEFAULT_FRAME_THICKNESS)} ${state.wall.unit}</div>
+    <div><strong>Photo edge spacing:</strong> ${formatNumber(state.layoutSettings.spacing)} ${state.wall.unit}</div>
     <div><strong>Compact only:</strong> ${state.layoutSettings.compact ? 'Yes' : 'No'}</div>
     <div><strong>Usable area:</strong> ${areaLabel(usableWidth, usableHeight, state.wall.unit)}</div>
     <div><strong>Frames:</strong> ${state.frames.length}</div>
@@ -1636,6 +1666,66 @@ function renderSummary() {
     <div><strong>Active layout:</strong> ${escapeHtml(layoutLine)}</div>
     <div><strong>Photo:</strong> ${photoLine}</div>
   `;
+}
+
+function getFrameById(frameId) {
+  return state.frames.find((frame) => frame.id === frameId) ?? null;
+}
+
+function startFrameImagePicker(frameId) {
+  const frame = getFrameById(frameId);
+  if (!frame) {
+    showMessage('That frame could not be found.', 'error');
+    return;
+  }
+  state.pendingFrameImageId = frameId;
+  if (els.frameImageInput) {
+    els.frameImageInput.value = '';
+    els.frameImageInput.click();
+  }
+}
+
+async function handleFrameImageChange(event) {
+  const file = event.target.files?.[0];
+  const frameId = state.pendingFrameImageId;
+  state.pendingFrameImageId = null;
+  if (!file || !frameId) return;
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    const resized = await resizeImageDataUrl(dataUrl, 1200, 0.88);
+    const frame = getFrameById(frameId);
+    if (!frame) {
+      showMessage('That frame no longer exists.', 'error');
+      return;
+    }
+    frame.photoDataUrl = resized;
+    frame.photoName = file.name || '';
+    render();
+    persistState();
+    showMessage(`Photo added to “${frame.name}”. The uploaded image is treated as the full outer frame image.`, 'info');
+  } catch (error) {
+    showMessage('Could not load that frame photo. Try a smaller image or another file.', 'error');
+  }
+}
+
+function removeFrameImage(frameId) {
+  const frame = getFrameById(frameId);
+  if (!frame) return;
+  frame.photoDataUrl = null;
+  frame.photoName = '';
+  render();
+  persistState();
+  showMessage(`Photo removed from “${frame.name}”.`, 'info');
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('FileReadError'));
+    reader.readAsDataURL(file);
+  });
 }
 
 function renderFrameList() {
@@ -1651,14 +1741,26 @@ function renderFrameList() {
   state.frames.forEach((frame) => {
     const item = document.createElement('div');
     item.className = 'frame-item';
+    const photoStatus = frame.photoDataUrl ? `Photo saved${frame.photoName ? `: ${escapeHtml(frame.photoName)}` : ''}` : 'No custom photo yet';
     item.innerHTML = `
       <div class="frame-meta">
         <strong>${escapeHtml(frame.name)}</strong>
-        <span>${areaLabel(frame.width, frame.height, state.wall.unit)}</span>
+        <span>${areaLabel(frame.width, frame.height, state.wall.unit)} outer size, including frame</span>
+        <span>${photoStatus}</span>
       </div>
-      <button type="button" class="button-secondary" data-remove-id="${frame.id}">Remove</button>
+      <div class="frame-item-actions">
+        <button type="button" class="button-secondary" data-photo-id="${frame.id}">${frame.photoDataUrl ? 'Replace photo' : 'Add photo'}</button>
+        ${frame.photoDataUrl ? `<button type="button" class="button-secondary" data-clear-photo-id="${frame.id}">Remove photo</button>` : ''}
+        <button type="button" class="button-secondary" data-remove-id="${frame.id}">Remove frame</button>
+      </div>
     `;
     els.frameList.appendChild(item);
+  });
+  els.frameList.querySelectorAll('[data-photo-id]').forEach((button) => {
+    button.addEventListener('click', () => startFrameImagePicker(Number(button.dataset.photoId)));
+  });
+  els.frameList.querySelectorAll('[data-clear-photo-id]').forEach((button) => {
+    button.addEventListener('click', () => removeFrameImage(Number(button.dataset.clearPhotoId)));
   });
   els.frameList.querySelectorAll('[data-remove-id]').forEach((button) => {
     button.addEventListener('click', () => removeFrame(Number(button.dataset.removeId)));
@@ -1732,16 +1834,35 @@ function renderWall() {
   state.frames.forEach((frame) => {
     const placement = activeLayout.placements.get(frame.id);
     if (!placement) return;
-    const frameEl = document.createElement('div');
+    const frameEl = document.createElement('button');
+    frameEl.type = 'button';
     frameEl.className = 'wall-frame';
+    if (frame.photoDataUrl) frameEl.classList.add('has-custom-photo');
     if (placement.width * scaleX < 54 || placement.height * scaleY < 42) frameEl.classList.add('frame-compact');
+    const renderedWidth = placement.width * scaleX;
+    const renderedHeight = placement.height * scaleY;
+    const thicknessPx = Math.max(1, Math.min(renderedWidth, renderedHeight) / 2 - 1, (state.layoutSettings.frameThickness ?? DEFAULT_FRAME_THICKNESS) * Math.min(scaleX, scaleY));
     frameEl.style.left = `${placement.x * scaleX}px`;
     frameEl.style.top = `${placement.y * scaleY}px`;
-    frameEl.style.width = `${placement.width * scaleX}px`;
-    frameEl.style.height = `${placement.height * scaleY}px`;
-    const label = document.createElement('span');
-    label.textContent = frame.name;
-    frameEl.appendChild(label);
+    frameEl.style.width = `${renderedWidth}px`;
+    frameEl.style.height = `${renderedHeight}px`;
+    frameEl.style.setProperty('--frame-border-width', `${thicknessPx}px`);
+    frameEl.style.setProperty('--frame-inner-inset', `${thicknessPx}px`);
+    frameEl.title = frame.photoDataUrl ? `Replace photo for ${frame.name}` : `Add photo for ${frame.name}`;
+    frameEl.setAttribute('aria-label', frameEl.title);
+    frameEl.addEventListener('click', () => startFrameImagePicker(frame.id));
+
+    if (frame.photoDataUrl) {
+      const image = document.createElement('img');
+      image.className = 'frame-photo-image';
+      image.src = frame.photoDataUrl;
+      image.alt = `${frame.name} uploaded frame photo`;
+      frameEl.appendChild(image);
+    } else {
+      const label = document.createElement('span');
+      label.textContent = frame.name;
+      frameEl.appendChild(label);
+    }
     els.frameLayer.appendChild(frameEl);
   });
 }
@@ -1783,6 +1904,7 @@ function hydrateInputsFromState() {
   els.wallWidth.value = formatNumber(state.wall.width);
   els.wallHeight.value = formatNumber(state.wall.height);
   els.innerMargin.value = formatNumber(state.wall.innerMargin);
+  if (els.frameThickness) els.frameThickness.value = formatNumber(state.layoutSettings.frameThickness ?? DEFAULT_FRAME_THICKNESS);
   if (els.frameSpacing) els.frameSpacing.value = formatNumber(state.layoutSettings.spacing);
   if (els.compactLayout) els.compactLayout.checked = Boolean(state.layoutSettings.compact);
   els.frameName.value = state.draftFrame.name || 'Picture';
@@ -1819,8 +1941,21 @@ function init() {
   els.clearFrames.addEventListener('click', clearFrames);
   els.prevLayout.addEventListener('click', () => cycleLayout(-1));
   els.nextLayout.addEventListener('click', () => cycleLayout(1));
+  if (els.frameImageInput) els.frameImageInput.addEventListener('change', handleFrameImageChange);
   [els.frameName, els.frameWidth, els.frameHeight, els.frameQuantity].forEach((input) => input.addEventListener('change', persistDraftFrame));
-  [els.frameSpacing, els.compactLayout].filter(Boolean).forEach((input) => {
+  if (els.frameSpacing) {
+    els.frameSpacing.addEventListener('input', () => {
+      state.spacingWasManuallyEdited = true;
+    });
+  }
+  if (els.frameThickness) {
+    els.frameThickness.addEventListener('input', () => {
+      if (!state.spacingWasManuallyEdited && els.frameSpacing) {
+        els.frameSpacing.value = formatNumber(getRecommendedSpacing(Number(els.frameThickness.value)));
+      }
+    });
+  }
+  [els.frameSpacing, els.frameThickness, els.compactLayout].filter(Boolean).forEach((input) => {
     input.addEventListener('change', () => {
       applyWallSettings(
         {

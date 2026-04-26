@@ -16,8 +16,8 @@
       <p class="eyebrow">Open source wall layout planner</p>
       <h1>Wall Picture Planner</h1>
       <p class="subtitle">
-        Built for phones. Enter the wall size in mm, choose minimum frame spacing, take or choose a wall photo,
-        then add frames and flip through unique gallery-wall arrangements.
+        Built for phones. Enter the wall size in mm, including outer photo-frame dimensions, set frame thickness and spacing,
+        take or choose a wall photo, then add frames, tap them to add your own framed photos, and flip through unique layouts.
       </p>
     </header>
 
@@ -46,16 +46,24 @@
               <input id="inner-margin" name="innerMargin" type="number" min="0" step="0.1" value="120" required />
             </label>
             <label>
-              <span>Photo spacing (mm)</span>
-              <input id="frame-spacing" name="frameSpacing" type="number" min="0" step="0.1" value="10" required />
+              <span>Frame thickness (mm)</span>
+              <input id="frame-thickness" name="frameThickness" type="number" min="0" step="0.1" value="20" required />
             </label>
           </div>
 
           <div class="grid two-up">
             <label>
+              <span>Photo spacing (mm)</span>
+              <input id="frame-spacing" name="frameSpacing" type="number" min="0" step="0.1" value="60" required />
+              <small class="field-note">Recommended default follows the frame thickness: 20 mm frame → 60 mm spacing.</small>
+            </label>
+            <label>
               <span>Units</span>
               <input type="text" value="Millimetres (mm)" disabled />
             </label>
+          </div>
+
+          <div class="grid one-up">
             <label class="checkbox-label">
               <input id="compact-layout" name="compactLayout" type="checkbox" />
               <span>Only show arrangements using the minimum overall frame area</span>
@@ -105,7 +113,7 @@
       <section class="panel preview-panel">
         <div class="section-heading compact">
           <h2>2. Wall preview</h2>
-          <p>The dashed rectangle is the inner keep-clear boundary for frame edges.</p>
+          <p>The dashed rectangle is the inner keep-clear boundary. Tap any placed frame to add or replace its own full framed photo.</p>
         </div>
 
         <div class="layout-toolbar">
@@ -143,7 +151,7 @@
           <h2>3. Add picture frames</h2>
           <p>
             Frames are redistributed across the usable wall area using the minimum photo spacing value.
-            Add batches of same-size frames and flip through unique visual arrangements.
+            Tap a placed frame on the preview to add your own image. The uploaded image is treated as the full framed photo.
           </p>
         </div>
 
@@ -161,11 +169,11 @@
 
           <div class="grid two-up">
             <label>
-              <span>Frame width (mm)</span>
+              <span>Outer frame width (mm)</span>
               <input id="frame-width" name="frameWidth" type="number" min="1" step="0.1" value="300" required />
             </label>
             <label>
-              <span>Frame height (mm)</span>
+              <span>Outer frame height (mm)</span>
               <input id="frame-height" name="frameHeight" type="number" min="1" step="0.1" value="400" required />
             </label>
           </div>
@@ -247,6 +255,7 @@
       </div>
     </div>
 
+    <input id="frame-image-input" class="hidden" type="file" accept="image/*" />
     <canvas id="camera-canvas" class="hidden-canvas" aria-hidden="true"></canvas>
 
     <script src="app.js"></script>

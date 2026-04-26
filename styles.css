@@ -834,3 +834,69 @@ select:focus {
   color: var(--muted);
   line-height: 1.35;
 }
+
+/* Frame-image support. The entered frame dimensions are outer dimensions, including the frame. */
+.wall-frame {
+  padding: 0;
+  min-height: 0;
+  width: auto;
+  border-width: var(--frame-border-width, 3px);
+  cursor: pointer;
+}
+
+button.wall-frame:hover {
+  transform: none;
+}
+
+.wall-frame::before {
+  inset: var(--frame-inner-inset, 10%);
+}
+
+.wall-frame.has-custom-photo {
+  background: #111;
+  border-width: 1px;
+  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.18);
+}
+
+.wall-frame.has-custom-photo::before {
+  display: none;
+}
+
+.frame-photo-image {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  display: block;
+}
+
+.wall-frame.has-custom-photo span {
+  display: none;
+}
+
+.frame-item-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.field-note {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+@media (min-width: 720px) {
+  .frame-item-actions {
+    grid-template-columns: repeat(3, minmax(0, auto));
+    justify-content: end;
+  }
+
+  .frame-item-actions button {
+    width: auto;
+    white-space: nowrap;
+  }
+}
