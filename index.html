@@ -17,7 +17,7 @@
       <h1>Wall Picture Planner</h1>
       <p class="subtitle">
         Built for phones. Enter the wall size in mm, including outer photo-frame dimensions, set frame thickness and spacing,
-        take or choose a wall photo, then add frames, tap them to add your own framed photos, and flip through unique layouts.
+        take or choose a wall photo, then add frames, tap any numbered frame to manage it, and flip through unique layouts.
       </p>
     </header>
 
@@ -55,7 +55,7 @@
             <label>
               <span>Photo spacing (mm)</span>
               <input id="frame-spacing" name="frameSpacing" type="number" min="0" step="0.1" value="60" required />
-              <small class="field-note">Recommended default follows the frame thickness: 20 mm frame → 60 mm spacing.</small>
+              <small class="field-note">Uniform minimum gap between every neighbouring frame, applied identically as horizontal and vertical edge-to-edge spacing. Recommended: thickness × 3, e.g. 20 mm frame → 60 mm spacing.</small>
             </label>
             <label>
               <span>Units</span>
@@ -66,7 +66,7 @@
           <div class="grid one-up">
             <label class="checkbox-label">
               <input id="compact-layout" name="compactLayout" type="checkbox" />
-              <span>Only show arrangements using the minimum overall frame area</span>
+              <span>Only show arrangements using the smallest overall frame area</span>
             </label>
           </div>
 
@@ -113,7 +113,7 @@
       <section class="panel preview-panel">
         <div class="section-heading compact">
           <h2>2. Wall preview</h2>
-          <p>The dashed rectangle is the inner keep-clear boundary. Tap any placed frame to add or replace its own full framed photo.</p>
+          <p>The dashed rectangle is the inner keep-clear boundary. Each placed frame shows a numbered badge. Tap any frame on the wall, or its card in the strip below, to manage it.</p>
         </div>
 
         <div class="layout-toolbar">
@@ -135,6 +135,16 @@
           </div>
         </div>
 
+        <div class="frame-strip-card-wrap">
+          <div class="frame-strip-header">
+            <strong>Quick access</strong>
+            <small>Tap a card to manage that frame.</small>
+          </div>
+          <div id="frame-strip" class="frame-strip empty-state" role="list">
+            Add frames to access them here.
+          </div>
+        </div>
+
         <div class="placement-card">
           <div class="section-heading compact">
             <h3>Placement instructions</h3>
@@ -151,7 +161,7 @@
           <h2>3. Add picture frames</h2>
           <p>
             Frames are redistributed across the usable wall area using the minimum photo spacing value.
-            Tap a placed frame on the preview to add your own image. The uploaded image is treated as the full framed photo.
+            Tap a placed frame on the preview, or use the strip above, to add your own image. The uploaded image is treated as the full framed photo.
           </p>
         </div>
 
@@ -252,6 +262,24 @@
           <button id="reset-crop" type="button" class="button-secondary">Reset selection</button>
         </div>
         <small class="hint">Portrait orientation is supported. Landscape is optional, not required.</small>
+      </div>
+    </div>
+
+    <div id="frame-action-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-scrim" data-close-modal="frame-action"></div>
+      <div class="modal-card action-sheet" role="dialog" aria-modal="true" aria-labelledby="frame-action-title">
+        <div class="action-sheet-handle" aria-hidden="true"></div>
+        <div class="action-sheet-header">
+          <p class="modal-eyebrow">Frame <span id="frame-action-number">1</span></p>
+          <h3 id="frame-action-title">Picture 1</h3>
+          <p id="frame-action-meta" class="action-sheet-meta"></p>
+        </div>
+        <div class="action-sheet-buttons">
+          <button id="frame-action-photo" type="button">Add photo</button>
+          <button id="frame-action-remove-photo" type="button" class="button-secondary hidden">Remove photo</button>
+          <button id="frame-action-remove" type="button" class="button-secondary danger-action">Remove frame</button>
+          <button id="frame-action-cancel" type="button" class="button-secondary">Cancel</button>
+        </div>
       </div>
     </div>
 
