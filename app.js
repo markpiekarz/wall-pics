@@ -39,6 +39,7 @@ const state = {
   cameraStream: null,
   pendingCrop: null,
   pendingFrameImageId: null,
+  frameActionFrameId: null,
   spacingWasManuallyEdited: false,
   cropInteraction: null,
   lastMessage: {
@@ -99,6 +100,15 @@ const els = {
   prevLayout: document.getElementById('prev-layout'),
   nextLayout: document.getElementById('next-layout'),
   placementInstructions: document.getElementById('placement-instructions'),
+  frameStrip: document.getElementById('frame-strip'),
+  frameActionModal: document.getElementById('frame-action-modal'),
+  frameActionNumber: document.getElementById('frame-action-number'),
+  frameActionTitle: document.getElementById('frame-action-title'),
+  frameActionMeta: document.getElementById('frame-action-meta'),
+  frameActionPhoto: document.getElementById('frame-action-photo'),
+  frameActionRemovePhoto: document.getElementById('frame-action-remove-photo'),
+  frameActionRemove: document.getElementById('frame-action-remove'),
+  frameActionCancel: document.getElementById('frame-action-cancel'),
 };
 
 function formatNumber(value) {
@@ -149,7 +159,10 @@ function showMessage(text, type = 'info') {
 }
 
 function syncBodyModalState() {
-  const hasOpenModal = !els.cameraModal.classList.contains('hidden') || !els.cropModal.classList.contains('hidden');
+  const hasOpenModal =
+    !els.cameraModal.classList.contains('hidden') ||
+    !els.cropModal.classList.contains('hidden') ||
+    (els.frameActionModal && !els.frameActionModal.classList.contains('hidden'));
   document.body.classList.toggle('modal-open', hasOpenModal);
 }
 
@@ -1084,8 +1097,13 @@ function recalculateLayouts(preserveSelection = true) {
 
 function applyWallSettings(nextWall, nextLayoutSettings = state.layoutSettings) {
   state.wall = { ...state.wall, ...nextWall, unit: 'mm' };
+  const incomingThickness = Number(nextLayoutSettings.frameThickness);
+  const resolvedThickness = Number.isFinite(incomingThickness) && incomingThickness >= 0
+    ? incomingThickness
+    : (state.layoutSettings.frameThickness ?? DEFAULT_FRAME_THICKNESS);
   state.layoutSettings = {
     spacing: Math.max(0, Number(nextLayoutSettings.spacing) || 0),
+    frameThickness: resolvedThickness,
     compact: Boolean(nextLayoutSettings.compact),
   };
   recalculateLayouts(true);
@@ -1728,6 +1746,79 @@ function readFileAsDataUrl(file) {
   });
 }
 
+function openFrameActionSheet(frameId) {
+  const frame = getFrameById(frameId);
+  if (!frame || !els.frameActionModal) return;
+  state.frameActionFrameId = frameId;
+  const orderIndex = state.frames.findIndex((candidate) => candidate.id === frameId);
+  const number = orderIndex >= 0 ? orderIndex + 1 : 1;
+  if (els.frameActionNumber) els.frameActionNumber.textContent = String(number);
+  if (els.frameActionTitle) els.frameActionTitle.textContent = frame.name;
+  const photoNote = frame.photoDataUrl ? ' • photo set' : '';
+  if (els.frameActionMeta) {
+    els.frameActionMeta.textContent = `${areaLabel(frame.width, frame.height, state.wall.unit)} outer size${photoNote}`;
+  }
+  if (els.frameActionPhoto) {
+    els.frameActionPhoto.textContent = frame.photoDataUrl ? 'Replace photo' : 'Add photo';
+  }
+  if (els.frameActionRemovePhoto) {
+    els.frameActionRemovePhoto.classList.toggle('hidden', !frame.photoDataUrl);
+  }
+  openModal(els.frameActionModal);
+}
+
+function closeFrameActionSheet() {
+  state.frameActionFrameId = null;
+  if (els.frameActionModal) closeModal(els.frameActionModal);
+}
+
+function handleFrameActionPhoto() {
+  const id = state.frameActionFrameId;
+  closeFrameActionSheet();
+  if (id != null) startFrameImagePicker(id);
+}
+
+function handleFrameActionRemovePhoto() {
+  const id = state.frameActionFrameId;
+  closeFrameActionSheet();
+  if (id != null) removeFrameImage(id);
+}
+
+function handleFrameActionRemove() {
+  const id = state.frameActionFrameId;
+  closeFrameActionSheet();
+  if (id != null) removeFrame(id);
+}
+
+function renderFrameStrip() {
+  if (!els.frameStrip) return;
+  if (!state.frames.length) {
+    els.frameStrip.className = 'frame-strip empty-state';
+    els.frameStrip.textContent = 'Add frames to access them here.';
+    return;
+  }
+  els.frameStrip.className = 'frame-strip';
+  els.frameStrip.innerHTML = '';
+  state.frames.forEach((frame, index) => {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'frame-strip-card';
+    if (frame.photoDataUrl) card.classList.add('has-photo');
+    card.dataset.frameId = String(frame.id);
+    card.setAttribute('role', 'listitem');
+    const photoNote = frame.photoDataUrl ? ' • photo set' : '';
+    card.innerHTML = `
+      <span class="frame-strip-badge">${index + 1}</span>
+      <span class="frame-strip-meta-block">
+        <span class="frame-strip-name">${escapeHtml(frame.name)}</span>
+        <span class="frame-strip-meta">${formatNumber(frame.width)} × ${formatNumber(frame.height)} mm${photoNote}</span>
+      </span>
+    `;
+    card.addEventListener('click', () => openFrameActionSheet(frame.id));
+    els.frameStrip.appendChild(card);
+  });
+}
+
 function renderFrameList() {
   els.frameCountCopy.textContent = `${state.frames.length} frame${state.frames.length === 1 ? '' : 's'}`;
   if (!state.frames.length) {
@@ -1831,26 +1922,33 @@ function renderWall() {
   const activeLayout = getActiveLayout();
   if (!activeLayout || activeLayout.invalidReason) return;
 
-  state.frames.forEach((frame) => {
+  state.frames.forEach((frame, frameIndex) => {
     const placement = activeLayout.placements.get(frame.id);
     if (!placement) return;
     const frameEl = document.createElement('button');
     frameEl.type = 'button';
     frameEl.className = 'wall-frame';
     if (frame.photoDataUrl) frameEl.classList.add('has-custom-photo');
-    if (placement.width * scaleX < 54 || placement.height * scaleY < 42) frameEl.classList.add('frame-compact');
     const renderedWidth = placement.width * scaleX;
     const renderedHeight = placement.height * scaleY;
-    const thicknessPx = Math.max(1, Math.min(renderedWidth, renderedHeight) / 2 - 1, (state.layoutSettings.frameThickness ?? DEFAULT_FRAME_THICKNESS) * Math.min(scaleX, scaleY));
+    if (renderedWidth < 54 || renderedHeight < 42) frameEl.classList.add('frame-compact');
+    if (renderedWidth < 38 || renderedHeight < 32) frameEl.classList.add('frame-tiny');
+
+    // Visible frame depth in screen pixels = real frame thickness × scale,
+    // clamped down so it never exceeds half of the smaller frame side.
+    const realFrameThicknessMm = state.layoutSettings.frameThickness ?? DEFAULT_FRAME_THICKNESS;
+    const computedThicknessPx = realFrameThicknessMm * Math.min(scaleX, scaleY);
+    const maxAllowedThicknessPx = Math.max(1, Math.min(renderedWidth, renderedHeight) / 2 - 1);
+    const thicknessPx = Math.max(1, Math.min(computedThicknessPx, maxAllowedThicknessPx));
+
     frameEl.style.left = `${placement.x * scaleX}px`;
     frameEl.style.top = `${placement.y * scaleY}px`;
     frameEl.style.width = `${renderedWidth}px`;
     frameEl.style.height = `${renderedHeight}px`;
-    frameEl.style.setProperty('--frame-border-width', `${thicknessPx}px`);
     frameEl.style.setProperty('--frame-inner-inset', `${thicknessPx}px`);
-    frameEl.title = frame.photoDataUrl ? `Replace photo for ${frame.name}` : `Add photo for ${frame.name}`;
-    frameEl.setAttribute('aria-label', frameEl.title);
-    frameEl.addEventListener('click', () => startFrameImagePicker(frame.id));
+    frameEl.title = `Manage ${frame.name}`;
+    frameEl.setAttribute('aria-label', `Frame ${frameIndex + 1}: ${frame.name}. Tap to manage.`);
+    frameEl.addEventListener('click', () => openFrameActionSheet(frame.id));
 
     if (frame.photoDataUrl) {
       const image = document.createElement('img');
@@ -1863,6 +1961,14 @@ function renderWall() {
       label.textContent = frame.name;
       frameEl.appendChild(label);
     }
+
+    // Numbered badge sits above the photo / matte so it's always visible.
+    const badge = document.createElement('span');
+    badge.className = 'frame-badge';
+    badge.textContent = String(frameIndex + 1);
+    badge.setAttribute('aria-hidden', 'true');
+    frameEl.appendChild(badge);
+
     els.frameLayer.appendChild(frameEl);
   });
 }
@@ -1872,6 +1978,7 @@ function render() {
   updatePhotoPreview();
   renderSummary();
   renderFrameList();
+  renderFrameStrip();
   renderLayoutToolbar();
   renderPlacementInstructions();
   renderWall();
@@ -1883,10 +1990,15 @@ function handleModalScrimClick(event) {
   const closeType = event.target instanceof HTMLElement ? event.target.dataset.closeModal : null;
   if (closeType === 'camera') stopCamera();
   if (closeType === 'crop') closeCropEditor();
+  if (closeType === 'frame-action') closeFrameActionSheet();
 }
 
 function handleEscape(event) {
   if (event.key !== 'Escape') return;
+  if (els.frameActionModal && !els.frameActionModal.classList.contains('hidden')) {
+    closeFrameActionSheet();
+    return;
+  }
   if (!els.cropModal.classList.contains('hidden')) {
     closeCropEditor();
     return;
@@ -1971,6 +2083,13 @@ function init() {
   els.cropImage.addEventListener('load', updateCropStageRatio);
   els.cameraModal.addEventListener('click', handleModalScrimClick);
   els.cropModal.addEventListener('click', handleModalScrimClick);
+  if (els.frameActionModal) {
+    els.frameActionModal.addEventListener('click', handleModalScrimClick);
+  }
+  if (els.frameActionPhoto) els.frameActionPhoto.addEventListener('click', handleFrameActionPhoto);
+  if (els.frameActionRemovePhoto) els.frameActionRemovePhoto.addEventListener('click', handleFrameActionRemovePhoto);
+  if (els.frameActionRemove) els.frameActionRemove.addEventListener('click', handleFrameActionRemove);
+  if (els.frameActionCancel) els.frameActionCancel.addEventListener('click', closeFrameActionSheet);
   document.addEventListener('keydown', handleEscape);
 
   const resizeObserver = new ResizeObserver(() => {

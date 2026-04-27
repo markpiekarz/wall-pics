@@ -416,6 +416,7 @@ select:focus {
   /* Wood-grain gradient is the visible frame; the inner inset gap reveals it. */
   background: linear-gradient(145deg, rgba(68, 46, 21, 0.96), rgba(124, 86, 48, 0.94));
   border: 0;
+  border-radius: 0; /* Frames are never rounded. Overrides base button rule. */
   box-shadow: 0 8px 14px rgba(0, 0, 0, 0.16), inset 0 0 0 1px rgba(255, 243, 223, 0.18);
   overflow: hidden;
   display: flex;
@@ -430,6 +431,7 @@ select:focus {
   inset: var(--frame-inner-inset, 0);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(242, 237, 230, 0.84));
   box-shadow: inset 0 0 0 1px rgba(122, 112, 102, 0.18);
+  border-radius: 0; /* Square inner matte to match the square outer frame. */
 }
 
 .wall-frame span {
@@ -798,10 +800,6 @@ select:focus {
   .wall-viewport {
     min-height: 460px;
     padding: 20px;
-  }
-
-  .wall-frame {
-    border-width: 4px;
   }
 }
 
